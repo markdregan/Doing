@@ -5,13 +5,18 @@ import { useTaskStore } from '../store/useTaskStore'
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading, initialized } = useAuthStore()
-  const { initialize, dataLoading } = useTaskStore()
+  const { initialize, dataLoading, redeemInviteToken } = useTaskStore()
 
   useEffect(() => {
     if (initialized && user) {
+      const pendingToken = sessionStorage.getItem('pendingInviteToken')
+      if (pendingToken) {
+        sessionStorage.removeItem('pendingInviteToken')
+        redeemInviteToken(pendingToken)
+      }
       initialize(user.id)
     }
-  }, [user, initialized, initialize])
+  }, [user, initialized, initialize, redeemInviteToken])
 
   if (!initialized || loading) {
     return (

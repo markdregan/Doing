@@ -45,4 +45,10 @@ describe('EmptyState', () => {
     expect(screen.getByText('No completed tasks yet')).toBeInTheDocument()
     expect(screen.getByText('Check off a task and it will appear here')).toBeInTheDocument()
   })
+
+  it('shows assigned message', () => {
+    render(<EmptyState view="assigned" />)
+    expect(screen.getByText('No tasks assigned to you')).toBeInTheDocument()
+    expect(screen.getByText('Tasks your friends assign to you will appear here')).toBeInTheDocument()
+  })
 })

@@ -4,6 +4,7 @@ import { getDeadlineLabel } from '../lib/dateUtils';
 import { TAG_COLOR_MAP, PROJECT_COLOR_MAP } from '../lib/constants';
 import { REPEAT_INTERVALS } from '../types';
 import type { Task } from '../types';
+import AssigneePicker from './AssigneePicker';
 
 interface TaskFooterProps {
   task: Task;
@@ -23,7 +24,7 @@ export default function TaskFooter({ task }: TaskFooterProps) {
   const projects = useTaskStore(s => s.projects);
   const activeView = useTaskStore(s => s.activeView);
 
-  const [activePicker, setActivePicker] = useState<'tags' | 'repeat' | 'project' | null>(null);
+  const [activePicker, setActivePicker] = useState<'tags' | 'repeat' | 'project' | 'assign' | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const dateInputRef = useRef<HTMLInputElement>(null);
 
@@ -211,6 +212,31 @@ export default function TaskFooter({ task }: TaskFooterProps) {
                 </button>
               ))}
             </div>
+          )}
+        </div>
+
+        <div className="relative">
+          <button
+            onClick={() => setActivePicker(activePicker === 'assign' ? null : 'assign')}
+            className={`p-1 rounded transition-colors ${
+              task.assignedTo
+                ? 'text-orange-400 bg-orange-50 dark:bg-[#3C2E1C]'
+                : 'text-gray-400 dark:text-[#636366] hover:text-orange-400 hover:bg-orange-50 dark:hover:bg-[#3C2E1C]'
+            }`}
+            title="Assign to"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="5" cy="4.5" r="2" />
+              <path d="M1 11c0-2 1.5-2.8 3-2.8s3 .8 3 2.8" />
+              <path d="M10.5 3.5l2 2 2.5-2.5" strokeWidth="1" />
+            </svg>
+          </button>
+          {activePicker === 'assign' && (
+            <AssigneePicker
+              taskId={task.id}
+              currentAssigneeId={task.assignedTo}
+              onClose={() => setActivePicker(null)}
+            />
           )}
         </div>
 

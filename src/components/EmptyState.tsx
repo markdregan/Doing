@@ -54,6 +54,15 @@ export default function EmptyState({ view }: { view: ViewType }) {
     );
   }
 
+  if (view === 'assigned') {
+    return (
+      <div className="py-16 text-center animate-fade-in">
+        <p className="text-[15px] font-medium text-gray-400 dark:text-[#7C7C80]">No tasks assigned to you</p>
+        <p className="text-xs text-gray-300 dark:text-[#636366] mt-2 max-w-[220px] mx-auto leading-relaxed">Tasks your friends assign to you will appear here</p>
+      </div>
+    );
+  }
+
   return (
     <div className="py-16 text-center animate-fade-in">
       <p className="text-[15px] font-medium text-gray-400 dark:text-[#7C7C80]">No tasks in this project</p>

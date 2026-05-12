@@ -38,30 +38,52 @@ Dark mode is toggled by the `dark` class on `<html>`. Things 3-inspired palette 
 
 ```
 src/main.tsx          → BrowserRouter → App.tsx → Routes
-src/App.tsx           → /auth (AuthPage) | / (ProtectedRoute → AppShell)
+src/App.tsx           → /auth (AuthPage) | /invite (InvitePage) | / (ProtectedRoute → AppShell)
 src/AppShell          → DndContext wraps Sidebar + TaskList + DragOverlay + QuickEntry
 src/store/
   useAuthStore.ts     → Supabase session, signInWithGithub, signOut, initialize
-  useTaskStore.ts     → Tasks + Projects CRUD, reorder, Supabase sync, dataLoading
+  useTaskStore.ts     → Tasks + Projects CRUD, reorder, Supabase sync, dataLoading, sharing, assignment
   useThemeStore.ts    → dark/light toggle, localStorage persistence
 src/components/
-  Sidebar.tsx         → Sortable projects, task counts, dark toggle, sign out
-  TaskList.tsx        → SortableContext for visible tasks
+  Sidebar.tsx         → Sortable projects, task counts, dark toggle, sharing (per-project), sign out
+  TaskList.tsx        → SortableContext for visible tasks (including Assigned view)
   DraggableTaskItem.tsx → useSortable wrapper
-  TaskItem.tsx        → inline editing, notes editor, due date picker
+  TaskItem.tsx        → inline editing, notes, due date picker, assignee badge (initials/avatar)
+  TaskFooter.tsx      → action bar with assign button, date, tags, project, repeat
+  AssigneePicker.tsx  → email search + project collaborator list for task assignment
+  ShareDialog.tsx     → email input → share with existing user OR invite non-user by email
+  InvitePage.tsx      → handles /invite?token=xxx — redeem or prompt sign-in
   QuickEntry.tsx      → Cmd+K palette with project picker + today toggle
   AuthPage.tsx        → Login with GitHub only
-  ProtectedRoute.tsx  → Auth guard, initializes task store on login
+  ProtectedRoute.tsx  → Auth guard, checks for pending invite token, initializes task store
 ```
 
 ## Supabase integration
 
 - Client initialized from `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` env vars
-- RLS on all tables via `auth.uid() = user_id`
+- RLS policies: tasks accessible by owner, shared project members, or assignees. Projects accessible by owner or shared users.
 - Store uses explicit `taskFromRow`/`taskToRow` and `projectFromRow`/`projectToRow` mappers for snake_case ↔ camelCase
 - Optimistic local updates with Supabase sync; errors log but don't revert (except `toggleTask` and `deleteProject`)
 - Batch sort-order updates use `Promise.all` on individual updates
 - `crypto.randomUUID()` generates client-side IDs before Supabase insert
+- `profiles` table auto-populated via DB trigger on `auth.users` insert (populated from GitHub OAuth metadata)
+- Real-time subscriptions (`supabase.channel`) for tasks and project_shares
+- Collaboration tables: `profiles`, `project_shares`
+
+### Sharing flow
+
+Share a project by email in ShareDialog:
+- **Existing user**: `profiles` lookup → insert `project_shares` with `sharedWith = user.id`, `status = 'active'`
+- **Non-user**: insert `project_shares` with `invitedEmail = email`, `status = 'invited'`, `token = randomUUID()` → (optionally) send email via `/functions/v1/send-invite` Edge Function (Resend)
+- Invited users shown in ShareDialog with "Invited" badge
+- Invite link: `/invite?token=xxx` → `InvitePage` → if authenticated, `redeemInviteToken()` → project appears in sidebar
+
+### Task assignment
+
+Assign by email or pick from project collaborators in AssigneePicker:
+- Email lookup via `getProfileByEmail(email)` → `assignTask(taskId, userId)`
+- Project collaborators shown as quick-pick options
+- Assignee shown as avatar/initial badge on task item
 
 ### Agent access (admin-level)
 
@@ -87,6 +109,11 @@ console.log(JSON.stringify(data, null, 2));
 "
 ```
 
+**Edge function already deployed: `send-invite`**
+- `supabase/functions/send-invite/index.ts` — sends invite email via Resend
+- Public (no JWT required), validates request body fields
+- To update: `supabase functions deploy send-invite`
+
 ## Drag and drop (@dnd-kit)
 
 IDs are prefixed: `task-${task.id}` for tasks, `project-${project.id}` for projects. Active/over types are distinguished via `data.type` ('task' | 'project'). Cross-container drag (task → sidebar project) updates `projectId` in store. Sortable handles within `verticalListSortingStrategy`.
@@ -97,7 +124,33 @@ IDs are prefixed: `task-${task.id}` for tasks, `project-${project.id}` for proje
 - **Today** — tasks marked as today or due today
 - **Someday** — tasks flagged with `isSomeday`, hidden from all other uncompleted views
 - **All** — all uncompleted tasks (excluding someday)
+- **Assigned** — tasks assigned to you by friends (`assignedTo === userId`)
 - **Project** — tasks within a specific project
+
+## Collaboration
+
+### Task Assignment
+- `tasks.assigned_to` + `tasks.assigned_by` columns (nullable)
+- Single assignee per task. Assign by email or pick from project collaborators.
+- Assignee can edit task details and mark complete, cannot delete or change project
+- Assigned tasks appear in a dedicated "Assigned" sidebar view (not in Inbox/Today/All)
+
+### Shared Projects
+- `project_shares` join table: (project_id, shared_by, shared_with nullable, permission='write')
+- Non-user invites: uses `invited_email`, `status='invited'`, `token` columns
+- Owner shares via hover icon on project name in sidebar → ShareDialog (enter email)
+- Shared projects appear in "Shared with me" section in sidebar
+- Full collaborator permissions: view, add tasks, complete any task, edit own notes
+- Owner retains control (can delete project, change settings, stop sharing)
+
+### RLS Strategy (key policies)
+- `tasks`: user_id = me OR project_id IN (shared projects) OR assigned_to = me
+- `projects`: user_id = me OR id IN (shared with me)
+- `project_shares`: visible to shared_by, shared_with, or via invite token lookup
+
+### Real-time
+- Tasks channel: subscribes to all task changes (RLS filters server-side)
+- Shares channel: re-initializes when a project is shared/unshared with the user
 
 ## Routes
 

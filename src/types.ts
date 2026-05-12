@@ -25,6 +25,8 @@ export interface Task {
   sortOrder: number;
   tagIds: string[];
   repeat: RepeatInterval | null;
+  assignedTo: string | null;
+  assignedBy: string | null;
 }
 
 export interface Project {
@@ -32,6 +34,27 @@ export interface Project {
   title: string;
   color: ProjectColor;
   sortOrder: number;
+  createdAt: string;
+  userId: string;
+}
+
+export interface Profile {
+  id: string;
+  email: string;
+  displayName: string;
+  avatarUrl: string | null;
+  createdAt: string;
+}
+
+export interface ProjectShare {
+  id: string;
+  projectId: string;
+  sharedBy: string;
+  sharedWith: string | null;
+  invitedEmail: string | null;
+  status: 'active' | 'invited';
+  permission: 'read' | 'write';
+  token: string | null;
   createdAt: string;
 }
 
@@ -57,4 +80,4 @@ export interface ChecklistItem {
   createdAt: string;
 }
 
-export type ViewType = 'inbox' | 'today' | 'someday' | 'all' | 'project' | 'trash' | 'logbook';
+export type ViewType = 'inbox' | 'today' | 'someday' | 'all' | 'project' | 'assigned' | 'trash' | 'logbook';

@@ -24,14 +24,20 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
   });
 
   const setActiveView = useTaskStore(s => s.setActiveView);
-  const deleteProject = useTaskStore(s => s.deleteProject);
   const tasks = useTaskStore(s => s.tasks);
+  const profiles = useTaskStore(s => s.profiles);
+  const projectShares = useTaskStore(s => s.projectShares);
 
   const projectTasks = tasks.filter(t => !t.deletedAt && t.projectId === project.id && !t.isSomeday);
   const uncompletedCount = projectTasks.filter(t => !t.completed).length;
   const completedCount = projectTasks.filter(t => t.completed).length;
   const totalCount = projectTasks.length;
   const percentage = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+  const activeShares = projectShares
+    .filter(s => s.projectId === project.id && s.status === 'active' && s.sharedWith)
+    .map(s => profiles.find(p => p.id === s.sharedWith))
+    .filter(Boolean);
+  const invitedShares = projectShares.filter(s => s.projectId === project.id && s.status === 'invited');
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -40,7 +46,7 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="group flex items-center" {...attributes} {...listeners}>
+    <div ref={setNodeRef} style={style} className="flex items-center" {...attributes} {...listeners}>
       <button
         onClick={() => setActiveView('project', project.id)}
         className={`flex-1 flex items-center gap-2.5 px-3 py-1 text-sm rounded-lg transition-colors ${
@@ -56,17 +62,29 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
           className={isActive ? '' : 'opacity-80'}
         />
         <span className="truncate">{project.title}</span>
+        {activeShares.length > 0 && (
+          <div className="flex -space-x-1 ml-1">
+            {activeShares.slice(0, 3).map(profile => profile && (
+              <div
+                key={profile.id}
+                className="w-3.5 h-3.5 rounded-full bg-blue-100 dark:bg-[#1C3A5C] border border-white dark:border-[#151516] flex items-center justify-center"
+                title={profile.displayName}
+              >
+                <span className="text-[6px] font-medium text-blue-600 dark:text-[#64B5F6]">
+                  {profile.displayName.charAt(0)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+        {invitedShares.length > 0 && (
+          <span className="text-[9px] text-amber-500 dark:text-amber-400 font-medium ml-1" title={`${invitedShares.length} invited`}>
+            +{invitedShares.length}
+          </span>
+        )}
         {uncompletedCount > 0 && (
           <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{uncompletedCount}</span>
         )}
-      </button>
-      <button
-        onClick={() => deleteProject(project.id)}
-        className="max-md:opacity-100 opacity-0 group-hover:opacity-100 p-1 text-gray-300 dark:text-[#48484A] hover:text-gray-500 dark:hover:text-[#98989D] transition-all mr-1"
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-          <path d="M3 3l6 6M9 3l-6 6"/>
-        </svg>
       </button>
     </div>
   );
@@ -84,6 +102,7 @@ export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) 
   const addTag = useTaskStore(s => s.addTag);
   const setActiveTagId = useTaskStore(s => s.setActiveTagId);
   const signOut = useAuthStore(s => s.signOut);
+  const userId = useTaskStore(s => s.userId);
   const { theme, toggle: toggleTheme } = useThemeStore();
 
   const [adding, setAdding] = useState(false);
@@ -99,6 +118,10 @@ export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) 
     t => !t.completed && !t.isSomeday && !t.deletedAt && (t.isToday || t.dueDate === todayStr)
   ).length;
   const trashCount = tasks.filter(t => t.deletedAt !== null).length;
+  const assignedCount = tasks.filter(
+    t => !t.completed && !t.deletedAt && t.assignedTo === userId
+  ).length;
+  const sharedProjects = projects.filter(p => p.userId !== userId);
 
   const handleAddProject = () => {
     if (newProjectTitle.trim()) {
@@ -158,6 +181,21 @@ export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) 
         >
           <SomedayIcon size={16} className="text-indigo-400" />
           <span>Someday</span>
+        </SidebarButton>
+
+        <SidebarButton
+          active={activeView === 'assigned'}
+          onClick={() => setActiveView('assigned')}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-orange-300">
+            <circle cx="8" cy="5" r="2.5" />
+            <path d="M3 14c0-2.5 2.5-4 5-4s5 1.5 5 4" />
+            <path d="M11.5 5l2.5 2.5 3-3" strokeWidth="1" />
+          </svg>
+          <span>Assigned</span>
+          {assignedCount > 0 && (
+            <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{assignedCount}</span>
+          )}
         </SidebarButton>
 
         <div className="pt-4">
@@ -222,6 +260,30 @@ export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) 
           </button>
         )}
       </div>
+
+      {sharedProjects.length > 0 && (
+        <>
+          <div className="mt-6 px-5 mb-2">
+            <span className="text-[11px] font-semibold text-gray-400 dark:text-[#636366] uppercase tracking-[0.08em]">Shared with me</span>
+          </div>
+          <nav className="px-3 space-y-0.5">
+            {sharedProjects.map(project => (
+              <button
+                key={project.id}
+                onClick={() => setActiveView('project', project.id)}
+                className={`w-full flex items-center gap-2.5 px-3 py-1 text-sm rounded-lg transition-colors ${
+                  activeView === 'project' && activeProjectId === project.id
+                    ? 'bg-gray-100 dark:bg-[#2C2C2E] text-gray-900 dark:text-[#F5F5F5] font-medium'
+                    : 'text-gray-500 dark:text-[#98989D] hover:text-gray-800 dark:hover:text-[#F5F5F5] hover:bg-gray-50 dark:hover:bg-[#252526]'
+                }`}
+              >
+                <ProgressRing percentage={0} size={14} color={PROJECT_COLOR_MAP[project.color]} className="opacity-80" />
+                <span className="truncate">{project.title}</span>
+              </button>
+            ))}
+          </nav>
+        </>
+      )}
 
       {tags.length > 0 && (
         <>
@@ -305,8 +367,12 @@ export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) 
         </button>
         <button
           onClick={signOut}
-          className="w-full text-left px-3 py-1 text-xs text-gray-300 dark:text-[#636366] hover:text-gray-500 dark:hover:text-[#98989D] transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-1 text-xs text-gray-300 dark:text-[#636366] hover:text-gray-500 dark:hover:text-[#98989D] transition-colors"
         >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 3.5a4 4 0 1 0 4 0" />
+            <path d="M7 1v5" />
+          </svg>
           Sign out
         </button>
       </div>
