@@ -14,6 +14,7 @@ import QuickEntry from './components/QuickEntry'
 import SearchDialog from './components/SearchDialog'
 import Toast from './components/Toast'
 import AuthPage from './components/AuthPage'
+import InvitePage from './components/InvitePage'
 import ProtectedRoute from './components/ProtectedRoute'
 
 function DragOverlayContent({ id }: { id: string }) {
@@ -45,7 +46,7 @@ function DragOverlayContent({ id }: { id: string }) {
 function getVisibleTaskIds() {
   const state = useTaskStore.getState()
   const todayStr = new Date().toISOString().slice(0, 10)
-  const { tasks, activeView, activeProjectId } = state
+  const { tasks, activeView, activeProjectId, userId } = state
 
   let filtered = [...tasks]
 
@@ -85,6 +86,8 @@ function getVisibleTaskIds() {
     filtered = filtered.filter(t => !t.completed && !t.isSomeday).sort((a, b) => a.sortOrder - b.sortOrder)
   } else if (activeView === 'project' && activeProjectId) {
     filtered = filtered.filter(t => !t.completed && !t.isSomeday && t.projectId === activeProjectId).sort((a, b) => a.sortOrder - b.sortOrder)
+  } else if (activeView === 'assigned') {
+    filtered = filtered.filter(t => !t.completed && !t.isSomeday && t.assignedTo === userId).sort((a, b) => a.sortOrder - b.sortOrder)
   } else {
     filtered = []
   }
@@ -96,6 +99,7 @@ function getViewTitle(activeView: string, activeProjectId: string | null, projec
   if (activeView === 'inbox') return { title: 'Inbox' }
   if (activeView === 'today') return { title: 'Today', subtitle: format(new Date(), 'EEEE, MMMM d') }
   if (activeView === 'someday') return { title: 'Someday' }
+  if (activeView === 'assigned') return { title: 'Assigned to Me' }
   if (activeView === 'trash') return { title: 'Trash' }
   if (activeView === 'logbook') return { title: 'Logbook' }
   if (activeView === 'all') return { title: 'All' }
@@ -279,6 +283,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/auth" element={<AuthPage />} />
+      <Route path="/invite" element={<InvitePage />} />
       <Route
         path="/"
         element={

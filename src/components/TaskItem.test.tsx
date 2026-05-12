@@ -78,6 +78,8 @@ function createTask(overrides: Partial<Task> = {}): Task {
     sortOrder: 0,
     tagIds: [],
     repeat: null,
+    assignedTo: null,
+    assignedBy: null,
     ...overrides,
   }
 }

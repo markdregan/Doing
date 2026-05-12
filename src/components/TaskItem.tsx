@@ -53,6 +53,7 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
   const activeView = useTaskStore(s => s.activeView);
   const restoreTask = useTaskStore(s => s.restoreTask);
   const deleteTask = useTaskStore(s => s.deleteTask);
+  const profiles = useTaskStore(s => s.profiles);
 
   const isLogbook = activeView === 'logbook';
   const isTrash = activeView === 'trash';
@@ -357,6 +358,31 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
         {/* Right side metadata (collapsed) */}
         {!isActive && !isLogbook && !isTrash && (
           <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+            {task.assignedTo && (() => {
+              const assignee = profiles.find(p => p.id === task.assignedTo);
+              return (
+                <div
+                  className="w-4 h-4 rounded-full bg-orange-100 dark:bg-[#3C2E1C] flex items-center justify-center"
+                  title={assignee ? `Assigned to ${assignee.displayName}` : 'Assigned'}
+                >
+                  {assignee ? (
+                    assignee.avatarUrl ? (
+                      <img src={assignee.avatarUrl} alt="" className="w-4 h-4 rounded-full" />
+                    ) : (
+                      <span className="text-[7px] font-medium text-orange-500 dark:text-orange-400">
+                        {assignee.displayName.charAt(0).toUpperCase()}
+                      </span>
+                    )
+                  ) : (
+                    <svg width="6" height="6" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-orange-400">
+                      <circle cx="5" cy="4.5" r="2" />
+                      <path d="M1 11c0-2 1.5-2.8 3-2.8s3 .8 3 2.8" />
+                      <path d="M10.5 3.5l2 2 2.5-2.5" strokeWidth="1" />
+                    </svg>
+                  )}
+                </div>
+              );
+            })()}
             {task.dueDate && (
               <span               className={`text-[11px] px-1.5 py-0.5 rounded-md ${
                 isOverdue

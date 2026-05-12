@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { supabase } from '../lib/supabase'
-import type { Task, Project, Tag, ChecklistItem, ViewType, ProjectColor, TagColor, RepeatInterval } from '../types'
+import type { Task, Project, Tag, ChecklistItem, ViewType, ProjectColor, TagColor, RepeatInterval, ProjectShare, Profile } from '../types'
 import { PROJECT_COLORS, TAG_COLORS } from '../types'
 
 function computeNextDate(interval: RepeatInterval, fromDate: string | null): string | null {
@@ -49,6 +49,8 @@ function taskFromRow(row: Record<string, unknown>): Task {
     createdAt: row.created_at as string,
     tagIds: [],
     repeat: (row.repeat_interval as RepeatInterval) ?? null,
+    assignedTo: (row.assigned_to as string) ?? null,
+    assignedBy: (row.assigned_by as string) ?? null,
   }
 }
 
@@ -68,6 +70,8 @@ function taskToRow(task: Task, userId: string) {
     sort_order: task.sortOrder,
     created_at: task.createdAt,
     repeat_interval: task.repeat,
+    assigned_to: task.assignedTo,
+    assigned_by: task.assignedBy,
   }
 }
 
@@ -78,6 +82,7 @@ function projectFromRow(row: Record<string, unknown>): Project {
     color: row.color as ProjectColor,
     sortOrder: (row.sort_order as number) ?? 0,
     createdAt: row.created_at as string,
+    userId: (row.user_id as string) ?? '',
   }
 }
 
@@ -133,6 +138,30 @@ function checklistItemToRow(item: ChecklistItem) {
   }
 }
 
+function profileFromRow(row: Record<string, unknown>): Profile {
+  return {
+    id: row.id as string,
+    email: row.email as string,
+    displayName: row.display_name as string,
+    avatarUrl: (row.avatar_url as string) ?? null,
+    createdAt: row.created_at as string,
+  }
+}
+
+function projectShareFromRow(row: Record<string, unknown>): ProjectShare {
+  return {
+    id: row.id as string,
+    projectId: (row.project_id as string) ?? '',
+    sharedBy: (row.shared_by as string) ?? '',
+    sharedWith: (row.shared_with as string) ?? null,
+    invitedEmail: (row.invited_email as string) ?? null,
+    status: (row.status as ProjectShare['status']) ?? 'active',
+    permission: (row.permission as ProjectShare['permission']) ?? 'write',
+    token: (row.token as string) ?? null,
+    createdAt: (row.created_at as string) ?? '',
+  }
+}
+
 interface TrashUndo {
   taskId: string
   title: string
@@ -140,15 +169,19 @@ interface TrashUndo {
 
 interface TaskStore {
   userId: string | null
+  _channels: ReturnType<typeof supabase.channel>[]
   tasks: Task[]
   projects: Project[]
   tags: Tag[]
   checklistItems: ChecklistItem[]
+  profiles: Profile[]
   activeView: ViewType
   activeProjectId: string | null
   activeTagId: string | null
   dataLoading: boolean
   trashUndo: TrashUndo | null
+  sharedProjectIds: string[]
+  projectShares: ProjectShare[]
 
   initialize: (userId: string) => Promise<void>
   clearAll: () => void
@@ -189,6 +222,14 @@ interface TaskStore {
   reorderChecklistItems: (taskId: string, orderedIds: string[]) => Promise<void>
 
   updateRepeat: (id: string, repeat: RepeatInterval | null) => Promise<void>
+
+  assignTask: (taskId: string, friendUserId: string) => Promise<void>
+  unassignTask: (taskId: string) => Promise<void>
+  shareProjectByEmail: (projectId: string, email: string) => Promise<void>
+  removeShare: (shareId: string) => Promise<void>
+  redeemInviteToken: (token: string) => Promise<boolean>
+  getProfileByEmail: (email: string) => Promise<Profile | null>
+  refreshProfiles: () => Promise<void>
 }
 
 export const useTaskStore = create<TaskStore>()((set, get) => ({
@@ -197,24 +238,39 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
   projects: [],
   tags: [],
   checklistItems: [],
+  profiles: [],
   activeView: 'inbox' as ViewType,
   activeProjectId: null,
   activeTagId: null,
   dataLoading: true,
   trashUndo: null,
+  sharedProjectIds: [],
+  projectShares: [],
+  _channels: [],
 
   initialize: async (userId) => {
     set({ dataLoading: true, userId })
 
-    const [projectsRes, tasksRes, tagsRes, taskTagsRes, checklistRes] = await Promise.all([
-      supabase.from('projects').select('*').eq('user_id', userId).order('sort_order'),
-      supabase.from('tasks').select('*').eq('user_id', userId).order('sort_order'),
+    get()._channels.forEach(c => supabase.removeChannel(c))
+    set({ _channels: [] })
+
+    const [projectsRes, tasksRes, tagsRes, taskTagsRes, checklistRes, sharesRes, profilesRes] = await Promise.all([
+      supabase.from('projects').select('*').order('sort_order'),
+      supabase.from('tasks').select('*').order('sort_order'),
       supabase.from('tags').select('*').eq('user_id', userId).order('title'),
       supabase.from('task_tags').select('*'),
       supabase.from('task_checklist_items').select('*'),
+      supabase.from('project_shares').select('*').or(`shared_by.eq.${userId},shared_with.eq.${userId}`),
+      supabase.from('profiles').select('*').limit(200),
     ])
 
     const tasks = (tasksRes.data ?? []).map(taskFromRow)
+    const projectShares = (sharesRes.data ?? []).map(projectShareFromRow)
+    const profiles = (profilesRes.data ?? []).map(profileFromRow)
+
+    const sharedProjectIds = projectShares
+      .filter(s => s.sharedWith === userId && s.status === 'active')
+      .map(s => s.projectId)
 
     const taskTagMap = new Map<string, string[]>()
     for (const row of (taskTagsRes.data ?? []) as Array<{ task_id: string; tag_id: string }>) {
@@ -233,22 +289,67 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       tasks,
       tags: (tagsRes.data ?? []).map(tagFromRow),
       checklistItems: (checklistRes.data ?? []).map(checklistItemFromRow),
+      projectShares,
+      sharedProjectIds,
+      profiles,
       dataLoading: false,
     })
+
+    const tasksChannel = supabase.channel(`tasks-${userId}`)
+      .on('postgres_changes' as never,
+        { event: '*', schema: 'public', table: 'tasks' },
+        (payload: { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> }) => {
+          const store = useTaskStore.getState()
+          if (!store.userId) return
+          if (payload.eventType === 'INSERT') {
+            const task = taskFromRow(payload.new)
+            if (!store.tasks.find(t => t.id === task.id)) {
+              set(s => ({ tasks: [...s.tasks, task] }))
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            const updated = taskFromRow(payload.new)
+            set(s => ({
+              tasks: s.tasks.map(t => t.id === updated.id ? updated : t),
+            }))
+          } else if (payload.eventType === 'DELETE') {
+            set(s => ({
+              tasks: s.tasks.filter(t => t.id !== (payload.old.id as string)),
+            }))
+          }
+        }
+      )
+      .subscribe()
+
+    const sharesChannel = supabase.channel(`shares-${userId}`)
+      .on('postgres_changes' as never,
+        { event: '*', schema: 'public', table: 'project_shares', filter: `shared_with=eq.${userId}` },
+        () => {
+          const store = useTaskStore.getState()
+          if (store.userId) store.initialize(store.userId)
+        }
+      )
+      .subscribe()
+
+    set(s => ({ _channels: [...s._channels, tasksChannel, sharesChannel] }))
   },
 
   clearAll: () => {
+    get()._channels.forEach(c => supabase.removeChannel(c))
     set({
       userId: null,
       tasks: [],
       projects: [],
       tags: [],
       checklistItems: [],
+      profiles: [],
       activeView: 'inbox',
       activeProjectId: null,
       activeTagId: null,
       dataLoading: true,
       trashUndo: null,
+      sharedProjectIds: [],
+      projectShares: [],
+      _channels: [],
     })
   },
 
@@ -267,6 +368,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       completed: false, completedAt: null, deletedAt: null,
       createdAt: now, sortOrder, tagIds: tagIds ?? [],
       repeat: repeat ?? null,
+      assignedTo: null, assignedBy: null,
     }
 
     set(state => ({ tasks: [...state.tasks, task] }))
@@ -407,6 +509,8 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
         sortOrder,
         tagIds: [...prev.tagIds],
         repeat: prev.repeat,
+        assignedTo: null,
+        assignedBy: null,
       }
 
       set(state => ({ tasks: [...state.tasks, repeatTask] }))
@@ -442,7 +546,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
-    const project: Project = { id, title, color, sortOrder, createdAt: now }
+    const project: Project = { id, title, color, sortOrder, createdAt: now, userId }
 
     set(state => ({ projects: [...state.projects, project] }))
 
@@ -783,6 +887,239 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     const { error } = await supabase.from('tasks').update({ repeat_interval: repeat }).eq('id', id)
     if (error) {
       console.error('Failed to update repeat:', error)
+    }
+  },
+
+  assignTask: async (taskId, friendUserId) => {
+    const userId = get().userId
+    if (!userId) return
+
+    set(state => ({
+      tasks: state.tasks.map(t =>
+        t.id === taskId ? { ...t, assignedTo: friendUserId, assignedBy: userId } : t
+      ),
+    }))
+
+    const { error } = await supabase.from('tasks').update({
+      assigned_to: friendUserId,
+      assigned_by: userId,
+    }).eq('id', taskId)
+
+    if (error) {
+      console.error('Failed to assign task:', error)
+      set(state => ({
+        tasks: state.tasks.map(t =>
+          t.id === taskId ? { ...t, assignedTo: null, assignedBy: null } : t
+        ),
+      }))
+    }
+  },
+
+  unassignTask: async (taskId) => {
+    set(state => ({
+      tasks: state.tasks.map(t =>
+        t.id === taskId ? { ...t, assignedTo: null, assignedBy: null } : t
+      ),
+    }))
+
+    const { error } = await supabase.from('tasks').update({
+      assigned_to: null,
+      assigned_by: null,
+    }).eq('id', taskId)
+
+    if (error) {
+      console.error('Failed to unassign task:', error)
+    }
+  },
+
+  shareProjectByEmail: async (projectId, email) => {
+    const userId = get().userId
+    if (!userId) return
+
+    const { data: profile } = await supabase.from('profiles')
+      .select('*')
+      .eq('email', email.toLowerCase().trim())
+      .maybeSingle()
+
+    if (profile) {
+      const existing = get().projectShares.find(
+        s => s.projectId === projectId && s.sharedWith === profile.id
+      )
+      if (existing) return
+
+      const id = crypto.randomUUID()
+      const now = new Date().toISOString()
+      const share: ProjectShare = {
+        id, projectId, sharedBy: userId, sharedWith: profile.id,
+        invitedEmail: null, status: 'active', permission: 'write',
+        token: null, createdAt: now,
+      }
+
+      set(s => ({
+        projectShares: [...s.projectShares, share],
+        profiles: s.profiles.some(p => p.id === profile.id)
+          ? s.profiles
+          : [...s.profiles, profileFromRow(profile)],
+      }))
+
+      const { error } = await supabase.from('project_shares').insert({
+        id, project_id: projectId, shared_by: userId, shared_with: profile.id,
+        invited_email: null, status: 'active', permission: 'write', token: null, created_at: now,
+      })
+
+      if (error) {
+        console.error('Failed to share project:', error)
+        set(s => ({ projectShares: s.projectShares.filter(s => s.id !== id) }))
+      }
+    } else {
+      const existing = get().projectShares.find(
+        s => s.projectId === projectId && s.invitedEmail === email.toLowerCase().trim()
+      )
+      if (existing) return
+
+      const id = crypto.randomUUID()
+      const token = crypto.randomUUID()
+      const now = new Date().toISOString()
+      const share: ProjectShare = {
+        id, projectId, sharedBy: userId, sharedWith: null,
+        invitedEmail: email.toLowerCase().trim(), status: 'invited',
+        permission: 'write', token, createdAt: now,
+      }
+
+      set(s => ({ projectShares: [...s.projectShares, share] }))
+
+      const { error } = await supabase.from('project_shares').insert({
+        id, project_id: projectId, shared_by: userId, shared_with: null,
+        invited_email: email.toLowerCase().trim(), status: 'invited',
+        permission: 'write', token, created_at: now,
+      })
+
+      if (error) {
+        console.error('Failed to create invite:', error)
+        set(s => ({ projectShares: s.projectShares.filter(s => s.id !== id) }))
+        return
+      }
+
+      try {
+        const project = get().projects.find(p => p.id === projectId)
+        const inviter = get().profiles.find(p => p.id === userId)
+        const origin = window.location.origin
+        await supabase.functions.invoke('send-invite', {
+          body: {
+            email: email.toLowerCase().trim(),
+            token,
+            projectTitle: project?.title ?? 'a project',
+            inviterName: inviter?.displayName ?? 'Someone',
+            origin,
+          },
+        })
+      } catch (e) {
+        console.error('Failed to send invite email:', e)
+      }
+    }
+  },
+
+  removeShare: async (shareId) => {
+    const prev = get().projectShares.find(s => s.id === shareId)
+    if (!prev) return
+
+    set(s => ({
+      projectShares: s.projectShares.filter(s => s.id !== shareId),
+      sharedProjectIds: prev.status === 'active'
+        ? s.sharedProjectIds.filter(id => id !== prev.projectId)
+        : s.sharedProjectIds,
+    }))
+
+    const { error } = await supabase.from('project_shares').delete().eq('id', shareId)
+
+    if (error) {
+      console.error('Failed to remove share:', error)
+      set(s => ({
+        projectShares: [...s.projectShares, prev],
+        sharedProjectIds: prev.status === 'active'
+          ? [...s.sharedProjectIds, prev.projectId]
+          : s.sharedProjectIds,
+      }))
+    }
+  },
+
+  redeemInviteToken: async (token) => {
+    const userId = get().userId
+    if (!userId) return false
+
+    const { data: shareRow } = await supabase.from('project_shares')
+      .select('*')
+      .eq('token', token)
+      .eq('status', 'invited')
+      .single()
+
+    if (!shareRow) return false
+
+    const share = projectShareFromRow(shareRow)
+
+    await supabase.from('project_shares').update({
+      shared_with: userId,
+      status: 'active',
+      token: null,
+      invited_email: null,
+    }).eq('id', share.id)
+
+    set(s => ({
+      projectShares: s.projectShares.map(s =>
+        s.id === share.id
+          ? { ...s, sharedWith: userId, status: 'active' as const, token: null, invitedEmail: null }
+          : s
+      ),
+      sharedProjectIds: [...s.sharedProjectIds, share.projectId],
+    }))
+
+    await get().initialize(userId)
+    return true
+  },
+
+  getProfileByEmail: async (email) => {
+    const cached = get().profiles.find(p => p.email === email.toLowerCase().trim())
+    if (cached) return cached
+
+    const { data } = await supabase.from('profiles')
+      .select('*')
+      .eq('email', email.toLowerCase().trim())
+      .maybeSingle()
+
+    if (data) {
+      const profile = profileFromRow(data)
+      set(s => ({
+        profiles: s.profiles.some(p => p.id === profile.id)
+          ? s.profiles
+          : [...s.profiles, profile],
+      }))
+      return profile
+    }
+
+    return null
+  },
+
+  refreshProfiles: async () => {
+    const userId = get().userId
+    if (!userId) return
+
+    const referencedIds = new Set<string>()
+    referencedIds.add(userId)
+    for (const share of get().projectShares) {
+      if (share.sharedWith) referencedIds.add(share.sharedWith)
+      if (share.sharedBy) referencedIds.add(share.sharedBy)
+    }
+    for (const task of get().tasks) {
+      if (task.assignedTo) referencedIds.add(task.assignedTo)
+      if (task.assignedBy) referencedIds.add(task.assignedBy)
+    }
+
+    const ids = [...referencedIds]
+    if (ids.length === 0) return
+
+    const { data } = await supabase.from('profiles').select('*').in('id', ids)
+    if (data) {
+      set({ profiles: data.map(profileFromRow) })
     }
   },
 }))

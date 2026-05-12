@@ -8,6 +8,7 @@ import TaskItem from './TaskItem';
 import AddTaskInput from './AddTaskInput';
 import EmptyState from './EmptyState';
 import ProgressRing from './ProgressRing';
+import ShareDialog from './ShareDialog';
 import type { Task } from '../types';
 
 function getDateGroupKey(dateStr: string): string {
@@ -41,7 +42,12 @@ export default function TaskList() {
   const setActiveTagId = useTaskStore(s => s.setActiveTagId);
   const emptyTrash = useTaskStore(s => s.emptyTrash);
   const updateProject = useTaskStore(s => s.updateProject);
+  const deleteProject = useTaskStore(s => s.deleteProject);
+  const userId = useTaskStore(s => s.userId);
 
+  const [showShare, setShowShare] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingTitleValue, setEditingTitleValue] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -52,6 +58,17 @@ export default function TaskList() {
       titleInputRef.current.select();
     }
   }, [editingTitle]);
+
+  useEffect(() => {
+    if (!showMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showMenu]);
 
   const completionTimestamps = useRef<Map<string, number>>(new Map());
   const [pendingVersion, setPendingVersion] = useState(0);
@@ -130,6 +147,9 @@ export default function TaskList() {
       filtered.sort((a, b) => a.sortOrder - b.sortOrder);
     } else if (activeView === 'project' && activeProjectId) {
       filtered = filtered.filter(t => (!t.completed || isPendingComplete(t.id)) && !t.isSomeday && t.projectId === activeProjectId);
+      filtered.sort((a, b) => a.sortOrder - b.sortOrder);
+    } else if (activeView === 'assigned') {
+      filtered = filtered.filter(t => !t.completed && !t.deletedAt && t.assignedTo === userId);
       filtered.sort((a, b) => a.sortOrder - b.sortOrder);
     }
 
@@ -270,6 +290,46 @@ export default function TaskList() {
               {subtitle && <p className="text-sm text-gray-400 dark:text-[#98989D] mt-1">{subtitle}</p>}
             </div>
           </div>
+          {activeView === 'project' && projectHeaderData?.project && projectHeaderData.project.userId === userId && (
+            <div className="relative" ref={menuRef}>
+              <button
+                onClick={() => setShowMenu(!showMenu)}
+                className="p-1.5 text-gray-300 dark:text-[#48484A] hover:text-gray-600 dark:hover:text-[#98989D] transition-colors rounded-lg hover:bg-gray-50 dark:hover:bg-[#252526]"
+                title="More"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <circle cx="8" cy="3" r="1.5" />
+                  <circle cx="8" cy="8" r="1.5" />
+                  <circle cx="8" cy="13" r="1.5" />
+                </svg>
+              </button>
+              {showMenu && (
+                <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-[#252526] border border-gray-100 dark:border-[#38383A] rounded-lg shadow-lg py-1 z-50">
+                  <button
+                    onClick={() => { setShowShare(true); setShowMenu(false); }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 dark:text-[#E5E5EA] hover:bg-gray-50 dark:hover:bg-[#2C2C2E] transition-colors"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4.5 6.5l3-1.5M4.5 5.5l3 1.5" />
+                      <circle cx="3.5" cy="6" r="1.5" />
+                      <circle cx="8.5" cy="4" r="1.5" />
+                      <circle cx="8.5" cy="8" r="1.5" />
+                    </svg>
+                    Share project
+                  </button>
+                  <button
+                    onClick={() => { deleteProject(projectHeaderData.project!.id); setShowMenu(false); }}
+                    className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-red-500 dark:text-[#F48FB1] hover:bg-gray-50 dark:hover:bg-[#2C2C2E] transition-colors"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                      <path d="M3 3l6 6M9 3l-6 6"/>
+                    </svg>
+                    Delete project
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {isTrash && filteredTasks.length > 0 && (
             <button
               onClick={emptyTrash}
@@ -345,7 +405,7 @@ export default function TaskList() {
           <EmptyState view={activeView} />
         )}
 
-        {!isTrash && !isLogbook && <AddTaskInput projectId={currentProjectId} />}
+        {!isTrash && !isLogbook && activeView !== 'assigned' && <AddTaskInput projectId={currentProjectId} />}
 
         {completedTasks.length > 0 && (
           <>
@@ -361,6 +421,13 @@ export default function TaskList() {
           </>
         )}
       </div>
+      {projectHeaderData?.project && (
+        <ShareDialog
+          open={showShare}
+          onOpenChange={setShowShare}
+          project={projectHeaderData.project}
+        />
+      )}
     </div>
   );
 }
