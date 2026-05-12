@@ -1,73 +1,64 @@
-# React + TypeScript + Vite
+# Things
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A task management app inspired by Things 3, built with React + TypeScript + Vite.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Inbox** — capture tasks quickly, organize later
+- **Today** — focus on what's due or flagged for today
+- **Someday** — stash tasks you want to get to eventually
+- **Projects** — group related tasks with drag-and-drop sorting
+- **Quick Entry** — Cmd+K palette for fast task creation
+- **Drag and drop** — reorder tasks and move between projects
+- **Dark mode** — Things 3-inspired palette
+- **GitHub OAuth** — sign in with your GitHub account
 
-## React Compiler
+## Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **Frontend**: React 19, TypeScript 6, Vite 8, Tailwind CSS v4
+- **State**: Zustand 5 with optimistic updates
+- **Backend**: Supabase (PostgreSQL, auth, RLS)
+- **Drag & drop**: @dnd-kit
+- **Testing**: Vitest + Testing Library
 
-## Expanding the ESLint configuration
+## Setup
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+git clone https://github.com/markdregan/Things
+cd Things
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Copy `.env` and fill in your Supabase credentials:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
 ```
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+Run database migrations against your Supabase project:
+
+```bash
+supabase migration up
+```
+
+## Development
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173).
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start dev server with HMR |
+| `npm run build` | Typecheck + production build |
+| `npm run lint` | Run ESLint |
+| `npm test` | Run tests |
+
+## License
+
+MIT
