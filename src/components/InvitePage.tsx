@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
 import { useTaskStore } from '../store/useTaskStore';
 
 export default function InvitePage() {
-  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const user = useAuthStore(s => s.user);
   const initialized = useAuthStore(s => s.initialized);
@@ -12,7 +11,7 @@ export default function InvitePage() {
   const [status, setStatus] = useState<'checking' | 'signing_in' | 'redeeming' | 'done' | 'error'>('checking');
   const [errorMsg, setErrorMsg] = useState('');
 
-  const token = searchParams.get('token');
+  const token = window.location.hash.replace('#token=', '');
 
   useEffect(() => {
     if (!token) {

@@ -176,7 +176,9 @@ export default function TaskList() {
   const completedTasks = useMemo(() => {
     let result: Task[] = [];
 
-    if (activeView === 'today') {
+    if (activeView === 'inbox') {
+      result = tasks.filter(t => !t.deletedAt && t.completed && !isPendingComplete(t.id) && t.projectId === null && !t.isSomeday);
+    } else if (activeView === 'today') {
       result = tasks.filter(t => !t.deletedAt && t.completed && !isPendingComplete(t.id) && (t.isToday || t.dueDate === todayStr));
     } else if (activeView === 'project' && activeProjectId) {
       result = tasks

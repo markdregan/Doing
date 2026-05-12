@@ -137,7 +137,7 @@ describe('initialize', () => {
     expect(mockFrom).toHaveBeenCalledWith('profiles')
   })
 
-  it('handles empty data', async () => {
+  it('seeds onboarding data when empty', async () => {
     const projectBuilder = createBuilder()
     const taskBuilder = createBuilder()
     const tagBuilder = createBuilder()
@@ -149,6 +149,7 @@ describe('initialize', () => {
     checklistBuilder.select.mockResolvedValue({ data: [], error: null })
     sharesBuilder.or.mockResolvedValue({ data: [], error: null })
     profilesBuilder.limit.mockResolvedValue({ data: [], error: null })
+    const seedBuilder = createBuilder()
     mockFrom
       .mockReturnValueOnce(projectBuilder)
       .mockReturnValueOnce(taskBuilder)
@@ -157,15 +158,21 @@ describe('initialize', () => {
       .mockReturnValueOnce(checklistBuilder)
       .mockReturnValueOnce(sharesBuilder)
       .mockReturnValueOnce(profilesBuilder)
+      .mockReturnValue(seedBuilder)
 
     await useTaskStore.getState().initialize('user-1')
 
     const state = useTaskStore.getState()
-    expect(state.projects).toEqual([])
-    expect(state.tasks).toEqual([])
-    expect(state.tags).toEqual([])
-    expect(state.checklistItems).toEqual([])
-    expect(state.profiles).toEqual([])
+    expect(state.dataLoading).toBe(false)
+    expect(state.projects).toHaveLength(4)
+    expect(state.projects[0].title).toBe('Welcome to Things')
+    expect(state.tasks).toHaveLength(23)
+    expect(state.tags).toHaveLength(6)
+    expect(state.checklistItems).toHaveLength(14)
+    expect(state.tasks.filter(t => t.isToday)).toHaveLength(4)
+    expect(state.tasks.filter(t => t.isSomeday)).toHaveLength(4)
+    expect(state.tasks.filter(t => t.projectId !== null)).toHaveLength(19)
+    expect(seedBuilder.insert).toHaveBeenCalledTimes(5)
   })
 })
 

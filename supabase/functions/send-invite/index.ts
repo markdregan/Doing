@@ -1,13 +1,13 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts'
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
+const PUBLIC_ORIGIN = Deno.env.get('PUBLIC_ORIGIN')
 
 interface InvitePayload {
   email: string
   token: string
   projectTitle: string
   inviterName: string
-  origin: string
 }
 
 serve(async (req) => {
@@ -21,13 +21,18 @@ serve(async (req) => {
   }
 
   try {
-    const { email, token, projectTitle, inviterName, origin } = await req.json() as InvitePayload
+    const { email, token, projectTitle, inviterName } = await req.json() as InvitePayload
 
-    if (!email || !token || !projectTitle || !inviterName || !origin) {
+    if (!email || !token || !projectTitle || !inviterName) {
       return new Response('Missing required fields', { status: 400 })
     }
 
-    const inviteLink = `${origin}/invite?token=${token}`
+    const origin = PUBLIC_ORIGIN ?? req.headers.get('origin')
+    if (!origin) {
+      return new Response('Server origin not configured', { status: 500 })
+    }
+
+    const inviteLink = `${origin}/invite#token=${token}`
 
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
