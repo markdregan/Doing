@@ -73,7 +73,7 @@ export default function SearchDialog({ open, onOpenChange }: SearchDialogProps) 
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/15 backdrop-blur-sm" />
-        <Dialog.Content className="fixed top-[15%] left-1/2 -translate-x-1/2 w-[520px] max-h-[60vh] bg-white dark:bg-[#2C2C2E] rounded-xl shadow-2xl border border-gray-100 dark:border-[#38383A] focus:outline-none flex flex-col">
+        <Dialog.Content className="fixed max-md:top-[10%] max-md:w-[calc(100vw-32px)] max-md:max-h-[80vh] top-[15%] left-1/2 -translate-x-1/2 w-[520px] max-h-[60vh] bg-white dark:bg-[#2C2C2E] rounded-xl shadow-2xl border border-gray-100 dark:border-[#38383A] focus:outline-none flex flex-col">
           <div className="p-4 pb-3">
             <div className="flex items-center gap-2 px-3 py-2 border border-gray-200 dark:border-[#38383A] rounded-lg focus-within:border-gray-300 dark:focus-within:border-[#48484A] transition-colors">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="text-gray-400 dark:text-[#636366] flex-shrink-0">
@@ -158,7 +158,7 @@ export default function SearchDialog({ open, onOpenChange }: SearchDialogProps) 
           )}
 
           <div className="px-4 py-2.5 border-t border-gray-100 dark:border-[#38383A]">
-            <span className="text-xs text-gray-300 dark:text-[#636366]">
+            <span className="text-xs text-gray-300 dark:text-[#636366] max-md:hidden">
               Type to search · <kbd className="px-1 py-0.5 bg-gray-100 dark:bg-[#1C1C1E] rounded text-[11px] font-medium">↵</kbd> to navigate · <kbd className="px-1 py-0.5 bg-gray-100 dark:bg-[#1C1C1E] rounded text-[11px] font-medium">Esc</kbd> to close
             </span>
           </div>

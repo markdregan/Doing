@@ -67,7 +67,7 @@ export default function QuickEntry({ open, onOpenChange }: QuickEntryProps) {
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/15 backdrop-blur-sm" />
-        <Dialog.Content className="fixed top-[12%] left-1/2 -translate-x-1/2 w-[500px] bg-white dark:bg-[#2C2C2E] rounded-xl shadow-2xl border border-gray-100 dark:border-[#38383A] focus:outline-none animate-slide-up">
+        <Dialog.Content className="fixed max-md:bottom-0 max-md:top-auto max-md:left-0 max-md:right-0 max-md:w-full max-md:max-h-[85vh] max-md:rounded-b-none max-md:rounded-t-xl max-md:translate-x-0 max-md:animate-slide-up top-[12%] left-1/2 -translate-x-1/2 w-[500px] bg-white dark:bg-[#2C2C2E] rounded-xl shadow-2xl border border-gray-100 dark:border-[#38383A] focus:outline-none animate-slide-up">
           <div className="p-5 pb-3">
             <input
               ref={inputRef}
@@ -195,7 +195,7 @@ export default function QuickEntry({ open, onOpenChange }: QuickEntryProps) {
             </div>
 
             <div className="ml-auto">
-              <span className="text-xs text-gray-300 dark:text-[#48484A]">Enter to add · Esc to cancel</span>
+              <span className="text-xs text-gray-300 dark:text-[#636366] max-md:hidden">Enter to add · Esc to cancel</span>
             </div>
           </div>
         </Dialog.Content>

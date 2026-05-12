@@ -83,17 +83,21 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
     }
   }, [isActive]);
 
-  // Click outside to collapse
+  // Click/tap outside to collapse
   useEffect(() => {
     if (!isActive) return;
-    const handler = (e: MouseEvent) => {
+    const handler = (e: MouseEvent | TouchEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         handleSaveNotes();
         setIsActive(false);
       }
     };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('touchstart', handler, { passive: true });
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('touchstart', handler);
+    };
   }, [isActive, notesText, task.notes]);
 
   const expand = () => {
@@ -146,7 +150,7 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
           <button
             {...(dragListeners ?? {})}
             className={`p-0.5 rounded cursor-grab active:cursor-grabbing transition-all ${
-              isLogbook ? 'hidden' : 'opacity-0 group-hover/item:opacity-100'
+              isLogbook ? 'hidden' : 'max-md:opacity-100 opacity-0 group-hover/item:opacity-100'
             } text-gray-300 dark:text-[#48484A] hover:text-gray-500 dark:hover:text-[#98989D]`}
             title="Drag to reorder"
           >
@@ -176,8 +180,8 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
               }`}
             >
               <svg
-                className={`w-3 h-3 text-white transition-all duration-200 ${
-                  task.completed ? 'opacity-100 scale-100' : 'opacity-0 scale-75 group-hover/item:opacity-100 group-hover/item:scale-100'
+                className={`w-3 h-3 text-white transition-opacity duration-150 ${
+                  task.completed ? 'opacity-100' : 'max-md:opacity-100 opacity-0 group-hover/item:opacity-100'
                 }`}
                 viewBox="0 0 12 12"
                 fill="none"
@@ -391,7 +395,7 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
 
         {/* Trash actions */}
         {isTrash && (
-          <div className="flex items-center gap-0.5 opacity-0 group-hover/item:opacity-100 transition-opacity duration-100 mt-0.5">
+          <div className="flex items-center gap-0.5 max-md:opacity-100 opacity-0 group-hover/item:opacity-100 transition-opacity duration-100 mt-0.5">
             <button
               onClick={() => restoreTask(task.id)}
               className="p-1 rounded text-gray-300 dark:text-[#48484A] hover:text-blue-500 dark:hover:text-[#64B5F6] hover:bg-blue-50 dark:hover:bg-[#1C3A5C] transition-colors"

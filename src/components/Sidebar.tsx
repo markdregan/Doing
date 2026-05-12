@@ -62,7 +62,7 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
       </button>
       <button
         onClick={() => deleteProject(project.id)}
-        className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 dark:text-[#48484A] hover:text-gray-500 dark:hover:text-[#98989D] transition-all mr-1.5"
+        className="max-md:opacity-100 opacity-0 group-hover:opacity-100 p-1 text-gray-300 dark:text-[#48484A] hover:text-gray-500 dark:hover:text-[#98989D] transition-all mr-1"
       >
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="M3 3l6 6M9 3l-6 6"/>
@@ -72,7 +72,7 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
   );
 }
 
-export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void }) {
+export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) {
   const tasks = useTaskStore(s => s.tasks);
   const projects = useTaskStore(s => s.projects);
   const tags = useTaskStore(s => s.tags);
@@ -109,7 +109,7 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
   };
 
   return (
-    <aside className="w-[240px] h-screen border-r border-gray-100 dark:border-[#2C2C2E] flex flex-col bg-white dark:bg-[#151516] flex-shrink-0">
+    <>
       <div className="p-5 pb-3 flex items-center justify-between">
         <h1 className="text-lg font-bold text-gray-900 dark:text-[#F5F5F5]">Things</h1>
         <button
@@ -216,7 +216,7 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
         ) : (
           <button
             onClick={() => setAdding(true)}
-            className="w-full text-left px-3 py-1 text-[13px] text-gray-400 hover:text-gray-600 dark:hover:text-[#98989D] transition-colors"
+            className="w-full text-left px-3 py-1.5 text-sm text-gray-400 hover:text-gray-600 dark:hover:text-[#98989D] transition-colors"
           >
             + New Project
           </button>
@@ -279,7 +279,7 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
         <div className="px-3 pt-2">
           <button
             onClick={() => setAddingTag(true)}
-            className="w-full text-left px-3 py-1 text-[13px] text-gray-400 hover:text-gray-600 dark:hover:text-[#98989D] transition-colors"
+            className="w-full text-left px-3 py-1.5 text-sm text-gray-400 hover:text-gray-600 dark:hover:text-[#98989D] transition-colors"
           >
             + New Tag
           </button>
@@ -310,6 +310,14 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
           Sign out
         </button>
       </div>
+    </>
+  );
+}
+
+export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void }) {
+  return (
+    <aside className="hidden md:flex w-[240px] h-screen border-r border-gray-100 dark:border-[#2C2C2E] flex-col bg-white dark:bg-[#151516] flex-shrink-0">
+      <SidebarContent onSearchOpen={onSearchOpen} />
     </aside>
   );
 }

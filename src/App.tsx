@@ -1,11 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { Routes, Route } from 'react-router-dom'
-import { DndContext, DragOverlay, closestCenter, PointerSensor, useSensor, useSensors, type DragStartEvent, type DragEndEvent } from '@dnd-kit/core'
+import { DndContext, DragOverlay, closestCenter, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, type DragStartEvent, type DragEndEvent } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
+import { format } from 'date-fns'
 import { useAuthStore } from './store/useAuthStore'
 import { useTaskStore } from './store/useTaskStore'
 import { useThemeStore } from './store/useThemeStore'
 import Sidebar from './components/Sidebar'
+import TopBar from './components/TopBar'
+import MobileDrawer from './components/MobileDrawer'
 import TaskList from './components/TaskList'
 import QuickEntry from './components/QuickEntry'
 import SearchDialog from './components/SearchDialog'
@@ -89,21 +92,53 @@ function getVisibleTaskIds() {
   return filtered.map(t => t.id)
 }
 
+function getViewTitle(activeView: string, activeProjectId: string | null, projects: import('./types').Project[], tasks: import('./types').Task[]) {
+  if (activeView === 'inbox') return { title: 'Inbox' }
+  if (activeView === 'today') return { title: 'Today', subtitle: format(new Date(), 'EEEE, MMMM d') }
+  if (activeView === 'someday') return { title: 'Someday' }
+  if (activeView === 'trash') return { title: 'Trash' }
+  if (activeView === 'logbook') return { title: 'Logbook' }
+  if (activeView === 'all') return { title: 'All' }
+  if (activeView === 'project' && activeProjectId) {
+    const project = projects.find(p => p.id === activeProjectId)
+    const projectTasksAll = tasks.filter(t => !t.deletedAt && t.projectId === activeProjectId && !t.isSomeday)
+    const pCompleted = projectTasksAll.filter(t => t.completed).length
+    const pTotal = projectTasksAll.length
+    return {
+      title: project?.title ?? 'Project',
+      subtitle: pTotal > 0 ? `${pCompleted} of ${pTotal} completed` : '',
+    }
+  }
+  return { title: 'Things' }
+}
+
 function AppShell() {
   const [quickEntryOpen, setQuickEntryOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [activeDragId, setActiveDragId] = useState<string | null>(null)
   const reorderTasks = useTaskStore(s => s.reorderTasks)
   const reorderProjects = useTaskStore(s => s.reorderProjects)
   const moveTaskToProject = useTaskStore(s => s.moveTaskToProject)
   const projects = useTaskStore(s => s.projects)
+  const activeView = useTaskStore(s => s.activeView)
+  const activeProjectId = useTaskStore(s => s.activeProjectId)
+  const tasks = useTaskStore(s => s.tasks)
   const trashUndo = useTaskStore(s => s.trashUndo)
   const restoreTask = useTaskStore(s => s.restoreTask)
   const clearTrashUndo = useTaskStore(s => s.clearTrashUndo)
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 500, tolerance: 10 } }),
+    useSensor(KeyboardSensor, {}),
   )
+
+  const viewTitle = useMemo(() => getViewTitle(activeView, activeProjectId, projects, tasks), [activeView, activeProjectId, projects, tasks])
+
+  useEffect(() => {
+    if (drawerOpen) setDrawerOpen(false)
+  }, [activeView, activeProjectId])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -178,10 +213,26 @@ function AppShell() {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex h-screen overflow-hidden">
+      <div className="flex flex-col md:flex-row h-screen overflow-hidden">
+        <TopBar
+          title={viewTitle.title}
+          subtitle={viewTitle.subtitle}
+          onMenuClick={() => setDrawerOpen(true)}
+          onSearchClick={() => setSearchOpen(true)}
+        />
         <Sidebar onSearchOpen={() => setSearchOpen(true)} />
         <TaskList />
       </div>
+
+      <button
+        onClick={() => setQuickEntryOpen(true)}
+        className="md:hidden fixed bottom-6 right-6 z-40 w-14 h-14 bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white rounded-full shadow-lg shadow-blue-500/30 flex items-center justify-center transition-all active:scale-95"
+      >
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      </button>
+
       <DragOverlay>
         {activeDragId ? <DragOverlayContent id={activeDragId} /> : null}
       </DragOverlay>
@@ -192,6 +243,11 @@ function AppShell() {
         title={trashUndo?.title ?? ''}
         onUndo={() => { if (trashUndo) restoreTask(trashUndo.taskId) }}
         onDismiss={clearTrashUndo}
+      />
+      <MobileDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onSearchOpen={() => { setSearchOpen(true) }}
       />
     </DndContext>
   )
