@@ -5,9 +5,10 @@ interface MobileDrawerProps {
   open: boolean;
   onClose: () => void;
   onSearchOpen: () => void;
+  onSettingsOpen?: () => void;
 }
 
-export default function MobileDrawer({ open, onClose, onSearchOpen }: MobileDrawerProps) {
+export default function MobileDrawer({ open, onClose, onSearchOpen, onSettingsOpen }: MobileDrawerProps) {
   const backdropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -35,7 +36,7 @@ export default function MobileDrawer({ open, onClose, onSearchOpen }: MobileDraw
           open ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <SidebarContent onSearchOpen={() => { onSearchOpen(); onClose(); }} />
+        <SidebarContent onSearchOpen={() => { onSearchOpen(); onClose(); }} onSettingsOpen={() => { onSettingsOpen?.(); onClose(); }} />
       </div>
     </div>
   );

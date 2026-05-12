@@ -90,7 +90,7 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
   );
 }
 
-export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) {
+export function SidebarContent({ onSearchOpen, onSettingsOpen }: { onSearchOpen?: () => void; onSettingsOpen?: () => void }) {
   const tasks = useTaskStore(s => s.tasks);
   const projects = useTaskStore(s => s.projects);
   const tags = useTaskStore(s => s.tags);
@@ -99,16 +99,13 @@ export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) 
   const activeTagId = useTaskStore(s => s.activeTagId);
   const setActiveView = useTaskStore(s => s.setActiveView);
   const addProject = useTaskStore(s => s.addProject);
-  const addTag = useTaskStore(s => s.addTag);
   const setActiveTagId = useTaskStore(s => s.setActiveTagId);
   const signOut = useAuthStore(s => s.signOut);
   const userId = useTaskStore(s => s.userId);
-  const { theme, toggle: toggleTheme } = useThemeStore();
+  const { resolvedTheme, toggle: toggleTheme } = useThemeStore();
 
   const [adding, setAdding] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState('');
-  const [addingTag, setAddingTag] = useState(false);
-  const [newTagTitle, setNewTagTitle] = useState('');
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const inboxCount = tasks.filter(
@@ -220,8 +217,17 @@ export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) 
         </div>
       </nav>
 
-      <div className="mt-6 px-5 mb-2">
+      <div className="mt-6 px-5 mb-2 flex items-center justify-between">
         <span className="text-[11px] font-semibold text-gray-400 dark:text-[#636366] uppercase tracking-[0.08em]">Projects</span>
+        <button
+          onClick={() => setAdding(true)}
+          className="text-gray-300 dark:text-[#48484A] hover:text-gray-500 dark:hover:text-[#98989D] transition-colors"
+          title="Add Project"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+            <path d="M7 2v10M2 7h10" />
+          </svg>
+        </button>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
@@ -234,8 +240,8 @@ export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) 
         ))}
       </nav>
 
-      <div className="px-3">
-        {adding ? (
+      {adding && (
+        <div className="px-3">
           <input
             autoFocus
             className="w-full px-3 py-1 text-sm border border-gray-200 dark:border-[#38383A] rounded-lg outline-none focus:border-gray-300 dark:focus:border-[#48484A] bg-transparent text-gray-900 dark:text-[#F5F5F5] placeholder:text-gray-400 dark:placeholder:text-[#636366]"
@@ -251,15 +257,8 @@ export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) 
               else handleAddProject();
             }}
           />
-        ) : (
-          <button
-            onClick={() => setAdding(true)}
-            className="w-full text-left px-3 py-1.5 text-sm text-gray-400 hover:text-gray-600 dark:hover:text-[#98989D] transition-colors"
-          >
-            + New Project
-          </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {sharedProjects.length > 0 && (
         <>
@@ -315,45 +314,12 @@ export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) 
         </>
       )}
 
-      {addingTag ? (
-        <div className="px-3 pt-2">
-          <input
-            autoFocus
-            className="w-full px-3 py-1 text-sm border border-gray-200 dark:border-[#38383A] rounded-lg outline-none focus:border-gray-300 dark:focus:border-[#48484A] bg-transparent text-gray-900 dark:text-[#F5F5F5] placeholder:text-gray-400 dark:placeholder:text-[#636366]"
-            placeholder="Tag name"
-            value={newTagTitle}
-            onChange={e => setNewTagTitle(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && newTagTitle.trim()) {
-                addTag(newTagTitle.trim());
-                setNewTagTitle('');
-                setAddingTag(false);
-              }
-              if (e.key === 'Escape') { setAddingTag(false); setNewTagTitle(''); }
-            }}
-            onBlur={() => {
-              if (!newTagTitle.trim()) { setAddingTag(false); }
-              else { addTag(newTagTitle.trim()); setAddingTag(false); setNewTagTitle(''); }
-            }}
-          />
-        </div>
-      ) : (
-        <div className="px-3 pt-2">
-          <button
-            onClick={() => setAddingTag(true)}
-            className="w-full text-left px-3 py-1.5 text-sm text-gray-400 hover:text-gray-600 dark:hover:text-[#98989D] transition-colors"
-          >
-            + New Tag
-          </button>
-        </div>
-      )}
-
       <div className="px-3 pb-3 mt-3 space-y-1 border-t border-gray-100 dark:border-[#2C2C2E] pt-3">
         <button
           onClick={toggleTheme}
           className="w-full flex items-center gap-2 px-3 py-1 text-xs text-gray-300 dark:text-[#636366] hover:text-gray-500 dark:hover:text-[#98989D] transition-colors"
         >
-          {theme === 'dark' ? (
+          {resolvedTheme === 'dark' ? (
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="7" cy="7" r="2.5" />
               <path d="M7 1v1.5M7 11.5V13M2.5 2.5l1 1M10.5 10.5l1 1M1 7h1.5M11.5 7H13M2.5 11.5l1-1M10.5 3.5l1-1" />
@@ -363,7 +329,17 @@ export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) 
               <path d="M11.5 8.5a5 5 0 0 1-6-6 5 5 0 1 0 6 6z" />
             </svg>
           )}
-          {theme === 'dark' ? 'Light mode' : 'Dark mode'}
+          {resolvedTheme === 'dark' ? 'Light mode' : 'Dark mode'}
+        </button>
+        <button
+          onClick={onSettingsOpen}
+          className="w-full flex items-center gap-2 px-3 py-1 text-xs text-gray-300 dark:text-[#636366] hover:text-gray-500 dark:hover:text-[#98989D] transition-colors"
+        >
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="7" cy="7" r="1.5" />
+            <path d="M7 1v2M7 11v2M1 7h2M11 7h2M3.5 3.5l1 1M9.5 9.5l1 1M3.5 10.5l1-1M9.5 4.5l1-1" />
+          </svg>
+          Settings
         </button>
         <button
           onClick={signOut}
@@ -380,10 +356,10 @@ export function SidebarContent({ onSearchOpen }: { onSearchOpen?: () => void }) 
   );
 }
 
-export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void }) {
+export default function Sidebar({ onSearchOpen, onSettingsOpen }: { onSearchOpen?: () => void; onSettingsOpen?: () => void }) {
   return (
     <aside className="hidden md:flex w-[240px] h-screen border-r border-gray-100 dark:border-[#2C2C2E] flex-col bg-white dark:bg-[#151516] flex-shrink-0">
-      <SidebarContent onSearchOpen={onSearchOpen} />
+      <SidebarContent onSearchOpen={onSearchOpen} onSettingsOpen={onSettingsOpen} />
     </aside>
   );
 }

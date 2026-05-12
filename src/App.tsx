@@ -5,13 +5,13 @@ import { arrayMove } from '@dnd-kit/sortable'
 import { format } from 'date-fns'
 import { useAuthStore } from './store/useAuthStore'
 import { useTaskStore } from './store/useTaskStore'
-import { useThemeStore } from './store/useThemeStore'
 import Sidebar from './components/Sidebar'
 import TopBar from './components/TopBar'
 import MobileDrawer from './components/MobileDrawer'
 import TaskList from './components/TaskList'
 import QuickEntry from './components/QuickEntry'
 import SearchDialog from './components/SearchDialog'
+import SettingsDialog from './components/SettingsDialog'
 import Toast from './components/Toast'
 import AuthPage from './components/AuthPage'
 import InvitePage from './components/InvitePage'
@@ -119,6 +119,7 @@ function getViewTitle(activeView: string, activeProjectId: string | null, projec
 function AppShell() {
   const [quickEntryOpen, setQuickEntryOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [activeDragId, setActiveDragId] = useState<string | null>(null)
   const reorderTasks = useTaskStore(s => s.reorderTasks)
@@ -153,6 +154,10 @@ function AppShell() {
       if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
         e.preventDefault()
         setSearchOpen(true)
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault()
+        setSettingsOpen(true)
       }
     }
     document.addEventListener('keydown', handler)
@@ -224,7 +229,7 @@ function AppShell() {
           onMenuClick={() => setDrawerOpen(true)}
           onSearchClick={() => setSearchOpen(true)}
         />
-        <Sidebar onSearchOpen={() => setSearchOpen(true)} />
+        <Sidebar onSearchOpen={() => setSearchOpen(true)} onSettingsOpen={() => setSettingsOpen(true)} />
         <TaskList />
       </div>
 
@@ -242,6 +247,7 @@ function AppShell() {
       </DragOverlay>
       <QuickEntry open={quickEntryOpen} onOpenChange={setQuickEntryOpen} />
       <SearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <Toast
         visible={trashUndo !== null}
         title={trashUndo?.title ?? ''}
@@ -252,6 +258,7 @@ function AppShell() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         onSearchOpen={() => { setSearchOpen(true) }}
+        onSettingsOpen={() => { setSettingsOpen(true) }}
       />
     </DndContext>
   )
@@ -261,12 +268,6 @@ export default function App() {
   const initialize = useAuthStore(s => s.initialize)
   const initialized = useAuthStore(s => s.initialized)
   const clearTasks = useTaskStore(s => s.clearAll)
-  const theme = useThemeStore(s => s.theme)
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-  }, [theme])
-
   useEffect(() => {
     if (!initialized) initialize()
   }, [initialized, initialize])
