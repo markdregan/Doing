@@ -3,6 +3,7 @@ import { useTaskStore } from '../store/useTaskStore';
 import { TAG_COLOR_MAP } from '../lib/constants';
 import type { Task } from '../types';
 import TaskFooter from './TaskFooter';
+import TaskOverflow from './TaskOverflow';
 
 function getCompletedDateLabel(dateStr: string): string {
   const date = new Date(dateStr);
@@ -267,7 +268,7 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
                     collapse();
                   }
                 }}
-                rows={3}
+                rows={1}
               />
 
               {/* Checklist */}
@@ -337,7 +338,7 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
                 ))}
                 <input
                   className="w-full py-0.5 px-1 text-[12.5px] text-gray-500 dark:text-[#98989D] placeholder:text-gray-300 dark:placeholder:text-[#48484A] outline-none bg-transparent"
-                  placeholder="+ Checklist item"
+                  placeholder="+ Add sub task"
                   value={newChecklistTitle}
                   onChange={e => setNewChecklistTitle(e.target.value)}
                   onKeyDown={e => {
@@ -409,6 +410,9 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
                 })}
               </div>
             )}
+            <div className="max-md:opacity-100 opacity-0 group-hover/item:opacity-100 transition-opacity duration-100">
+              <TaskOverflow task={task} />
+            </div>
           </div>
         )}
 

@@ -184,6 +184,7 @@ interface TaskStore {
   projectShares: ProjectShare[]
 
   initialize: (userId: string) => Promise<void>
+  seedOnboardingData: () => Promise<void>
   clearAll: () => void
 
   addTask: (params: { title: string; notes?: string; projectId?: string; dueDate?: string; isToday?: boolean; isSomeday?: boolean; tagIds?: string[]; repeat?: RepeatInterval | null }) => Promise<void>
@@ -225,6 +226,7 @@ interface TaskStore {
 
   assignTask: (taskId: string, friendUserId: string) => Promise<void>
   unassignTask: (taskId: string) => Promise<void>
+  _lastInviteTime: Record<string, number>
   shareProjectByEmail: (projectId: string, email: string) => Promise<void>
   removeShare: (shareId: string) => Promise<void>
   redeemInviteToken: (token: string) => Promise<boolean>
@@ -245,6 +247,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
   dataLoading: true,
   trashUndo: null,
   sharedProjectIds: [],
+  _lastInviteTime: {},
   projectShares: [],
   _channels: [],
 
@@ -284,20 +287,23 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       if (ids) task.tagIds = ids
     }
 
-    set({
-      projects: (projectsRes.data ?? []).map(projectFromRow),
-      tasks,
-      tags: (tagsRes.data ?? []).map(tagFromRow),
-      checklistItems: (checklistRes.data ?? []).map(checklistItemFromRow),
-      projectShares,
-      sharedProjectIds,
-      profiles,
-      dataLoading: false,
-    })
+    const projects = (projectsRes.data ?? []).map(projectFromRow)
+    const tags = (tagsRes.data ?? []).map(tagFromRow)
+    const checklistItems = (checklistRes.data ?? []).map(checklistItemFromRow)
+
+    const isFirstTime = tasks.length === 0 && projects.length === 0 && tags.length === 0
+
+    set({ projects, tasks, tags, checklistItems, projectShares, sharedProjectIds, profiles })
+
+    if (isFirstTime) {
+      await get().seedOnboardingData()
+    }
+
+    set({ dataLoading: false })
 
     const tasksChannel = supabase.channel(`tasks-${userId}`)
       .on('postgres_changes' as never,
-        { event: '*', schema: 'public', table: 'tasks' },
+        { event: '*', schema: 'public', table: 'tasks', filter: `or(user_id.eq.${userId},assigned_to.eq.${userId})` },
         (payload: { eventType: string; new: Record<string, unknown>; old: Record<string, unknown> }) => {
           const store = useTaskStore.getState()
           if (!store.userId) return
@@ -333,6 +339,278 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     set(s => ({ _channels: [...s._channels, tasksChannel, sharesChannel] }))
   },
 
+  seedOnboardingData: async () => {
+    const userId = get().userId
+    if (!userId) return
+
+    const now = new Date().toISOString()
+    const inDays = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10)
+    const uid = () => crypto.randomUUID()
+
+    const tagHighPriority = uid()
+    const tagFun = uid()
+    const tagHealth = uid()
+    const tagFinance = uid()
+    const tagLearning = uid()
+    const tagIdeas = uid()
+
+    const tags: Tag[] = [
+      { id: tagHighPriority, title: 'high priority', color: 'red' as const, createdAt: now },
+      { id: tagFun, title: 'fun', color: 'yellow' as const, createdAt: now },
+      { id: tagHealth, title: 'health', color: 'teal' as const, createdAt: now },
+      { id: tagFinance, title: 'finance', color: 'green' as const, createdAt: now },
+      { id: tagLearning, title: 'learning', color: 'blue' as const, createdAt: now },
+      { id: tagIdeas, title: 'ideas', color: 'purple' as const, createdAt: now },
+    ]
+
+    const projWelcome = uid()
+    const projVacation = uid()
+    const projHome = uid()
+    const projSide = uid()
+
+    const projects: Project[] = [
+      { id: projWelcome, title: 'Welcome to Things', color: 'blue' as const, sortOrder: 0, createdAt: now, userId },
+      { id: projVacation, title: 'Plan a Vacation', color: 'green' as const, sortOrder: 1, createdAt: now, userId },
+      { id: projHome, title: 'Home Projects', color: 'orange' as const, sortOrder: 2, createdAt: now, userId },
+      { id: projSide, title: 'Side Projects', color: 'purple' as const, sortOrder: 3, createdAt: now, userId },
+    ]
+
+    let s = 0
+
+    const tkWelcomeNavigate = uid()
+    const tkWelcomeQuickEntry = uid()
+    const tkWelcomeToday = uid()
+    const tkWelcomeChecklist = uid()
+    const tkWelcomeComplete = uid()
+
+    const tkVacationFlights = uid()
+    const tkVacationHotels = uid()
+    const tkVacationInsurance = uid()
+    const tkVacationPack = uid()
+    const tkVacationBank = uid()
+    const tkVacationTransfer = uid()
+
+    const tkHomeFaucet = uid()
+    const tkHomeHerbs = uid()
+    const tkHomeKitchen = uid()
+    const tkHomeStretch = uid()
+
+    const tkSideRust = uid()
+    const tkSideAtomic = uid()
+    const tkSideStory = uid()
+    const tkSidePortfolio = uid()
+
+    const tkInboxGym = uid()
+    const tkInboxDentist = uid()
+    const tkInboxCard = uid()
+    const tkInboxBirthday = uid()
+
+    const tasks: Task[] = [
+      {
+        id: tkWelcomeNavigate, title: 'Navigate with the sidebar',
+        notes: 'The sidebar shows your views: Inbox for quick capture, Today for what\'s on your plate, Someday for ideas, All for everything, and your Projects below.',
+        projectId: projWelcome, dueDate: null, isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkWelcomeQuickEntry, title: 'Try Quick Entry (\u2318K)',
+        notes: 'Press \u2318K (or Ctrl+K on Windows) to open the command palette. Add tasks from anywhere without leaving your current view.',
+        projectId: projWelcome, dueDate: null, isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkWelcomeToday, title: 'Tag a task with Today',
+        notes: 'This task appears in Today because it has the today flag. Click the sun icon on any task or set it in Quick Entry to use this view.',
+        projectId: projWelcome, dueDate: null, isToday: true, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkWelcomeChecklist, title: 'Try a checklist',
+        notes: 'Break tasks into smaller steps with checklists. Click the checklist icon on this task to see the items below.',
+        projectId: projWelcome, dueDate: null, isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkWelcomeComplete, title: 'Complete this task to see it in Logbook',
+        notes: '',
+        projectId: projWelcome, dueDate: null, isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+
+      {
+        id: tkVacationFlights, title: 'Book flights',
+        notes: 'Compare prices on Skyscanner and book early for the best deals.',
+        projectId: projVacation, dueDate: inDays(30), isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkVacationHotels, title: 'Research hotels',
+        notes: '',
+        projectId: projVacation, dueDate: null, isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkVacationInsurance, title: 'Get travel insurance',
+        notes: 'Check if your credit card offers travel insurance. World Nomads is a good alternative.',
+        projectId: projVacation, dueDate: null, isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkVacationPack, title: 'Pack suitcase',
+        notes: '',
+        projectId: projVacation, dueDate: null, isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkVacationBank, title: 'Notify bank of travel',
+        notes: '',
+        projectId: projVacation, dueDate: null, isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkVacationTransfer, title: 'Book airport transfer',
+        notes: '',
+        projectId: projVacation, dueDate: inDays(30), isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+
+      {
+        id: tkHomeFaucet, title: 'Fix leaky faucet',
+        notes: 'Check the washer in the kitchen faucet. Might need a replacement from the hardware store.',
+        projectId: projHome, dueDate: null, isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkHomeHerbs, title: 'Plant herbs on balcony',
+        notes: 'Basil, mint, and rosemary would be great for cooking.',
+        projectId: projHome, dueDate: null, isToday: true, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkHomeKitchen, title: 'Deep clean kitchen',
+        notes: '',
+        projectId: projHome, dueDate: null, isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkHomeStretch, title: 'Morning stretch',
+        notes: 'Ten minutes of stretching to start the day right.',
+        projectId: projHome, dueDate: null, isToday: true, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: 'daily' as const, assignedTo: null, assignedBy: null,
+      },
+
+      {
+        id: tkSideRust, title: 'Learn Rust',
+        notes: '',
+        projectId: projSide, dueDate: null, isToday: false, isSomeday: true,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkSideAtomic, title: 'Read Atomic Habits',
+        notes: 'Highly recommended by multiple friends.',
+        projectId: projSide, dueDate: null, isToday: false, isSomeday: true,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkSideStory, title: 'Write a short story',
+        notes: '',
+        projectId: projSide, dueDate: null, isToday: false, isSomeday: true,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkSidePortfolio, title: 'Design personal portfolio',
+        notes: '',
+        projectId: projSide, dueDate: null, isToday: false, isSomeday: true,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+
+      {
+        id: tkInboxGym, title: 'Renew gym membership',
+        notes: '',
+        projectId: null, dueDate: inDays(14), isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkInboxDentist, title: 'Schedule dentist appointment',
+        notes: 'Last visit was eight months ago. Time for a check-up.',
+        projectId: null, dueDate: null, isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkInboxCard, title: 'Review credit card statement',
+        notes: '',
+        projectId: null, dueDate: null, isToday: false, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+      {
+        id: tkInboxBirthday, title: 'Plan birthday dinner',
+        notes: 'Check which restaurants have availability.',
+        projectId: null, dueDate: null, isToday: true, isSomeday: false,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+      },
+    ]
+
+    const taskTagMappings: { taskId: string; tagId: string }[] = [
+      { taskId: tkVacationFlights, tagId: tagHighPriority },
+      { taskId: tkVacationHotels, tagId: tagHighPriority },
+      { taskId: tkHomeHerbs, tagId: tagFun },
+      { taskId: tkHomeStretch, tagId: tagHealth },
+      { taskId: tkSideRust, tagId: tagLearning },
+      { taskId: tkSideAtomic, tagId: tagLearning },
+      { taskId: tkSideStory, tagId: tagFun },
+      { taskId: tkSidePortfolio, tagId: tagIdeas },
+      { taskId: tkInboxGym, tagId: tagHealth },
+      { taskId: tkInboxDentist, tagId: tagHealth },
+      { taskId: tkInboxCard, tagId: tagFinance },
+      { taskId: tkInboxBirthday, tagId: tagFun },
+      { taskId: tkVacationBank, tagId: tagFinance },
+    ]
+
+    const taskTagRows = taskTagMappings.map(m => ({ task_id: m.taskId, tag_id: m.tagId }))
+
+    const checklistItems: ChecklistItem[] = [
+      { id: uid(), taskId: tkWelcomeChecklist, title: 'Write a task', completed: false, sortOrder: 0, createdAt: now },
+      { id: uid(), taskId: tkWelcomeChecklist, title: 'Add checklist items', completed: false, sortOrder: 1, createdAt: now },
+      { id: uid(), taskId: tkWelcomeChecklist, title: 'Check them off', completed: false, sortOrder: 2, createdAt: now },
+      { id: uid(), taskId: tkVacationHotels, title: 'Search neighborhoods', completed: false, sortOrder: 0, createdAt: now },
+      { id: uid(), taskId: tkVacationHotels, title: 'Read reviews', completed: false, sortOrder: 1, createdAt: now },
+      { id: uid(), taskId: tkVacationHotels, title: 'Compare prices', completed: false, sortOrder: 2, createdAt: now },
+      { id: uid(), taskId: tkVacationHotels, title: 'Book', completed: false, sortOrder: 3, createdAt: now },
+      { id: uid(), taskId: tkVacationPack, title: 'Clothes', completed: false, sortOrder: 0, createdAt: now },
+      { id: uid(), taskId: tkVacationPack, title: 'Toiletries', completed: false, sortOrder: 1, createdAt: now },
+      { id: uid(), taskId: tkVacationPack, title: 'Chargers', completed: false, sortOrder: 2, createdAt: now },
+      { id: uid(), taskId: tkVacationPack, title: 'Passport', completed: false, sortOrder: 3, createdAt: now },
+      { id: uid(), taskId: tkHomeKitchen, title: 'Clean oven', completed: false, sortOrder: 0, createdAt: now },
+      { id: uid(), taskId: tkHomeKitchen, title: 'Defrost freezer', completed: false, sortOrder: 1, createdAt: now },
+      { id: uid(), taskId: tkHomeKitchen, title: 'Organize pantry', completed: false, sortOrder: 2, createdAt: now },
+    ]
+
+    const results = await Promise.all([
+      supabase.from('tags').insert(tags.map(t => tagToRow(t, userId))),
+      supabase.from('projects').insert(projects.map(p => projectToRow(p, userId))),
+      supabase.from('tasks').insert(tasks.map(t => taskToRow(t, userId))),
+      supabase.from('task_tags').insert(taskTagRows),
+      supabase.from('task_checklist_items').insert(checklistItems.map(i => checklistItemToRow(i))),
+    ])
+
+    const errors = results.filter(r => r.error)
+    if (errors.length) {
+      console.error('Failed to seed onboarding data:', errors)
+      return
+    }
+
+    for (const task of tasks) {
+      task.tagIds = taskTagMappings.filter(m => m.taskId === task.id).map(m => m.tagId)
+    }
+
+    set(s => ({
+      tags: [...s.tags, ...tags],
+      projects: [...s.projects, ...projects],
+      tasks: [...s.tasks, ...tasks],
+      checklistItems: [...s.checklistItems, ...checklistItems],
+    }))
+  },
+
   clearAll: () => {
     get()._channels.forEach(c => supabase.removeChannel(c))
     set({
@@ -349,6 +627,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       trashUndo: null,
       sharedProjectIds: [],
       projectShares: [],
+      _lastInviteTime: {},
       _channels: [],
     })
   },
@@ -936,9 +1215,17 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     const userId = get().userId
     if (!userId) return
 
+    const normalizedEmail = email.toLowerCase().trim()
+    const now = Date.now()
+    const lastTime = get()._lastInviteTime[normalizedEmail]
+    const cooldown = 10_000
+    if (lastTime && now - lastTime < cooldown) return
+
+    set(s => ({ _lastInviteTime: { ...s._lastInviteTime, [normalizedEmail]: now } }))
+
     const { data: profile } = await supabase.from('profiles')
       .select('*')
-      .eq('email', email.toLowerCase().trim())
+      .eq('email', normalizedEmail)
       .maybeSingle()
 
     if (profile) {
@@ -973,7 +1260,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       }
     } else {
       const existing = get().projectShares.find(
-        s => s.projectId === projectId && s.invitedEmail === email.toLowerCase().trim()
+        s => s.projectId === projectId && s.invitedEmail === normalizedEmail
       )
       if (existing) return
 
@@ -982,7 +1269,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       const now = new Date().toISOString()
       const share: ProjectShare = {
         id, projectId, sharedBy: userId, sharedWith: null,
-        invitedEmail: email.toLowerCase().trim(), status: 'invited',
+        invitedEmail: normalizedEmail, status: 'invited',
         permission: 'write', token, createdAt: now,
       }
 
@@ -990,7 +1277,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
       const { error } = await supabase.from('project_shares').insert({
         id, project_id: projectId, shared_by: userId, shared_with: null,
-        invited_email: email.toLowerCase().trim(), status: 'invited',
+        invited_email: normalizedEmail, status: 'invited',
         permission: 'write', token, created_at: now,
       })
 
@@ -1003,14 +1290,12 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       try {
         const project = get().projects.find(p => p.id === projectId)
         const inviter = get().profiles.find(p => p.id === userId)
-        const origin = window.location.origin
         await supabase.functions.invoke('send-invite', {
           body: {
-            email: email.toLowerCase().trim(),
+            email: normalizedEmail,
             token,
             projectTitle: project?.title ?? 'a project',
             inviterName: inviter?.displayName ?? 'Someone',
-            origin,
           },
         })
       } catch (e) {

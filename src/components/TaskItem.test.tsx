@@ -26,6 +26,7 @@ const mockAddChecklistItem = vi.fn()
 const mockToggleChecklistItem = vi.fn()
 const mockUpdateChecklistItem = vi.fn()
 const mockDeleteChecklistItem = vi.fn()
+const mockAddTag = vi.fn()
 
 const mockStore = {
   updateTask: mockUpdateTask,
@@ -40,6 +41,7 @@ const mockStore = {
   moveTaskToProject: mockMoveTaskToProject,
   updateRepeat: mockUpdateRepeat,
   toggleTaskTag: mockToggleTaskTag,
+  addTag: mockAddTag,
   activeView: 'inbox' as const,
   tags: [],
   projects: [],
@@ -121,16 +123,14 @@ describe('TaskItem', () => {
     expect(mockToggleTask).toHaveBeenCalledWith('t1')
   })
 
-  it('expands on title click and shows notes, checklist, and footer', async () => {
+  it('expands on title click and shows notes, checklist, and overflow menu', async () => {
     const user = userEvent.setup()
     render(<TaskItem task={createTask()} />)
     await user.click(screen.getByText('Test task'))
     expect(screen.getAllByRole('textbox').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByPlaceholderText('Notes')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('+ Checklist item')).toBeInTheDocument()
-    expect(getFooterButton('Add to Today')).toBeInTheDocument()
-    expect(getFooterButton('Add to Someday')).toBeInTheDocument()
-    expect(getFooterButton('Set Deadline')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('+ Add sub task')).toBeInTheDocument()
+    expect(getFooterButton('More')).toBeInTheDocument()
   })
 
   it('saves edited title on Enter', async () => {
@@ -143,43 +143,48 @@ describe('TaskItem', () => {
     expect(mockUpdateTask).toHaveBeenCalledWith('t1', { title: 'Updated' })
   })
 
-  it('calls moveTaskToToday when today button clicked in footer', async () => {
+  it('calls moveTaskToToday from overflow menu', async () => {
     const user = userEvent.setup()
     render(<TaskItem task={createTask()} />)
     await user.click(screen.getByText('Test task'))
-    await user.click(getFooterButton('Add to Today')!)
+    await user.click(getFooterButton('More')!)
+    await user.click(screen.getByText('Add to Today'))
     expect(mockMoveTaskToToday).toHaveBeenCalledWith('t1')
   })
 
-  it('shows Remove from Today when task is today and expanded', async () => {
+  it('shows Remove from Today in overflow menu when task is today', async () => {
     const user = userEvent.setup()
     render(<TaskItem task={createTask({ isToday: true })} />)
     await user.click(screen.getByText('Test task'))
-    expect(getFooterButton('Remove from Today')).toBeInTheDocument()
+    await user.click(getFooterButton('More')!)
+    expect(screen.getByText('Remove from Today')).toBeInTheDocument()
   })
 
-  it('calls moveTaskToSomeday when someday button clicked in footer', async () => {
+  it('calls moveTaskToSomeday from overflow menu', async () => {
     const user = userEvent.setup()
     render(<TaskItem task={createTask()} />)
     await user.click(screen.getByText('Test task'))
-    await user.click(getFooterButton('Add to Someday')!)
+    await user.click(getFooterButton('More')!)
+    await user.click(screen.getByText('Add to Someday'))
     expect(mockMoveTaskToSomeday).toHaveBeenCalledWith('t1')
   })
 
-  it('shows delete button with confirmation in footer', async () => {
+  it('shows delete confirmation in overflow menu', async () => {
     const user = userEvent.setup()
     render(<TaskItem task={createTask()} />)
     await user.click(screen.getByText('Test task'))
-    await user.click(getFooterButton('Delete')!)
-    expect(getFooterButton('Tap again to confirm')).toBeInTheDocument()
+    await user.click(getFooterButton('More')!)
+    await user.click(screen.getByText('Delete'))
+    expect(screen.getByText('Tap again to confirm')).toBeInTheDocument()
   })
 
-  it('calls softDeleteTask on confirm delete in footer', async () => {
+  it('calls softDeleteTask on confirm delete in overflow menu', async () => {
     const user = userEvent.setup()
     render(<TaskItem task={createTask()} />)
     await user.click(screen.getByText('Test task'))
-    await user.click(getFooterButton('Delete')!)
-    await user.click(getFooterButton('Tap again to confirm')!)
+    await user.click(getFooterButton('More')!)
+    await user.click(screen.getByText('Delete'))
+    await user.click(screen.getByText('Tap again to confirm'))
     expect(mockSoftDeleteTask).toHaveBeenCalledWith('t1')
   })
 
@@ -253,7 +258,7 @@ describe('TaskItem', () => {
     expect(screen.getByText('0/1')).toBeInTheDocument()
   })
 
-  it('calls toggleTaskTag from tag picker in footer', async () => {
+  it('calls toggleTaskTag from overflow menu tag picker', async () => {
     const mockTag = { id: 'tag1', title: 'Work', color: 'blue' as const, createdAt: '2024-01-01' }
     vi.mocked(useTaskStore).mockImplementation((selector: unknown) => {
       if (typeof selector === 'function') {
@@ -264,12 +269,13 @@ describe('TaskItem', () => {
     const user = userEvent.setup()
     render(<TaskItem task={createTask()} />)
     await user.click(screen.getByText('Test task'))
-    await user.click(getFooterButton('Tags')!)
+    await user.click(getFooterButton('More')!)
+    await user.click(screen.getByText('Tags'))
     await user.click(screen.getByText('Work'))
     expect(mockToggleTaskTag).toHaveBeenCalledWith('t1', 'tag1')
   })
 
-  it('shows project button in footer when task has project', async () => {
+  it('shows project in overflow menu when task has project', async () => {
     const mockProject = { id: 'p1', title: 'Work Project', color: 'blue' as const, sortOrder: 0, createdAt: '2024-01-01' }
     vi.mocked(useTaskStore).mockImplementation((selector: unknown) => {
       if (typeof selector === 'function') {
@@ -280,7 +286,8 @@ describe('TaskItem', () => {
     const user = userEvent.setup()
     render(<TaskItem task={createTask({ projectId: 'p1' })} />)
     await user.click(screen.getByText('Test task'))
-    await user.click(getFooterButton('Move to Project')!)
+    await user.click(getFooterButton('More')!)
+    await user.click(screen.getByText('Move to'))
     expect(screen.getByText('Work Project')).toBeInTheDocument()
   })
 })
