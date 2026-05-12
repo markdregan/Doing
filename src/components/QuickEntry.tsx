@@ -67,7 +67,7 @@ export default function QuickEntry({ open, onOpenChange }: QuickEntryProps) {
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/15 backdrop-blur-sm" />
-        <Dialog.Content className="fixed top-[20%] left-1/2 -translate-x-1/2 w-[500px] bg-white dark:bg-[#2C2C2E] rounded-xl shadow-2xl border border-gray-100 dark:border-[#38383A] focus:outline-none">
+        <Dialog.Content className="fixed top-[12%] left-1/2 -translate-x-1/2 w-[500px] bg-white dark:bg-[#2C2C2E] rounded-xl shadow-2xl border border-gray-100 dark:border-[#38383A] focus:outline-none animate-slide-up">
           <div className="p-5 pb-3">
             <input
               ref={inputRef}
@@ -103,7 +103,7 @@ export default function QuickEntry({ open, onOpenChange }: QuickEntryProps) {
               </button>
 
               {showProjectList && (
-                <div className="absolute top-full left-0 mt-1 w-40 bg-white dark:bg-[#2C2C2E] rounded-lg shadow-lg border border-gray-100 dark:border-[#38383A] py-1 z-50">
+                <div className="absolute top-full left-0 mt-1 w-40 bg-white dark:bg-[#2C2C2E] rounded-lg shadow-lg border border-gray-100 dark:border-[#38383A] py-1 z-50 max-h-56 overflow-y-auto">
                   <button
                     onClick={() => { setSelectedProjectId(null); setShowProjectList(false); }}
                     className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left ${!selectedProjectId ? 'bg-gray-50 dark:bg-[#252526] text-gray-900 dark:text-[#F5F5F5]' : 'text-gray-600 dark:text-[#98989D] hover:bg-gray-50 dark:hover:bg-[#252526]'}`}
@@ -165,7 +165,7 @@ export default function QuickEntry({ open, onOpenChange }: QuickEntryProps) {
                 {selectedTagIds.length > 0 ? `${selectedTagIds.length} tag${selectedTagIds.length > 1 ? 's' : ''}` : 'Tags'}
               </button>
               {showTagList && (
-                <div className="absolute bottom-full left-0 mb-1 w-40 bg-white dark:bg-[#2C2C2E] rounded-lg shadow-lg border border-gray-100 dark:border-[#38383A] py-1 z-50 max-h-40 overflow-y-auto">
+                <div className="absolute bottom-full left-0 mb-1 w-40 bg-white dark:bg-[#2C2C2E] rounded-lg shadow-lg border border-gray-100 dark:border-[#38383A] py-1 z-50 max-h-56 overflow-y-auto">
                   {tags.length === 0 ? (
                     <p className="px-3 py-2 text-xs text-gray-400 dark:text-[#636366]">No tags yet</p>
                   ) : (
@@ -179,7 +179,7 @@ export default function QuickEntry({ open, onOpenChange }: QuickEntryProps) {
                         >
                           <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300 dark:border-[#48484A]'}`}>
                             {isSelected && (
-                              <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                                 <path d="M2 5l2 2 4-4" />
                               </svg>
                             )}
@@ -195,7 +195,7 @@ export default function QuickEntry({ open, onOpenChange }: QuickEntryProps) {
             </div>
 
             <div className="ml-auto">
-              <span className="text-xs text-gray-300 dark:text-[#636366]">Enter to add · Esc to cancel</span>
+              <span className="text-xs text-gray-300 dark:text-[#48484A]">Enter to add · Esc to cancel</span>
             </div>
           </div>
         </Dialog.Content>

@@ -6,6 +6,16 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
 import { PROJECT_COLOR_MAP, TAG_COLOR_MAP } from '../lib/constants';
 import type { Project } from '../types';
+import {
+  InboxIcon,
+  TodayIcon,
+  AnytimeIcon,
+  SomedayIcon,
+  LogbookIcon,
+  TrashIcon,
+  SearchIcon
+} from '../lib/icons';
+import ProgressRing from './ProgressRing';
 
 function ProjectItem({ project, isActive }: { project: Project; isActive: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -17,7 +27,11 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
   const deleteProject = useTaskStore(s => s.deleteProject);
   const tasks = useTaskStore(s => s.tasks);
 
-  const taskCount = tasks.filter(t => !t.completed && !t.isSomeday && !t.deletedAt && t.projectId === project.id).length;
+  const projectTasks = tasks.filter(t => !t.deletedAt && t.projectId === project.id && !t.isSomeday);
+  const uncompletedCount = projectTasks.filter(t => !t.completed).length;
+  const completedCount = projectTasks.filter(t => t.completed).length;
+  const totalCount = projectTasks.length;
+  const percentage = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -29,21 +43,26 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
     <div ref={setNodeRef} style={style} className="group flex items-center" {...attributes} {...listeners}>
       <button
         onClick={() => setActiveView('project', project.id)}
-        className={`flex-1 flex items-center gap-2.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+        className={`flex-1 flex items-center gap-2.5 px-3 py-1 text-sm rounded-lg transition-colors ${
           isActive
             ? 'bg-gray-100 dark:bg-[#2C2C2E] text-gray-900 dark:text-[#F5F5F5] font-medium'
             : 'text-gray-500 dark:text-[#98989D] hover:text-gray-800 dark:hover:text-[#F5F5F5] hover:bg-gray-50 dark:hover:bg-[#252526]'
         }`}
       >
-        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: PROJECT_COLOR_MAP[project.color] }} />
+        <ProgressRing
+          percentage={percentage}
+          size={14}
+          color={PROJECT_COLOR_MAP[project.color]}
+          className={isActive ? '' : 'opacity-80'}
+        />
         <span className="truncate">{project.title}</span>
-        {taskCount > 0 && (
-          <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{taskCount}</span>
+        {uncompletedCount > 0 && (
+          <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{uncompletedCount}</span>
         )}
       </button>
       <button
         onClick={() => deleteProject(project.id)}
-        className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 dark:text-[#48484A] hover:text-gray-500 dark:hover:text-[#98989D] transition-all mr-1"
+        className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 dark:text-[#48484A] hover:text-gray-500 dark:hover:text-[#98989D] transition-all mr-1.5"
       >
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
           <path d="M3 3l6 6M9 3l-6 6"/>
@@ -80,7 +99,6 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
     t => !t.completed && !t.isSomeday && !t.deletedAt && (t.isToday || t.dueDate === todayStr)
   ).length;
   const trashCount = tasks.filter(t => t.deletedAt !== null).length;
-  const logbookCount = tasks.filter(t => t.completed && !t.deletedAt).length;
 
   const handleAddProject = () => {
     if (newProjectTitle.trim()) {
@@ -99,10 +117,7 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
           className="text-gray-300 dark:text-[#48484A] hover:text-gray-500 dark:hover:text-[#98989D] transition-colors"
           title="Search"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-            <circle cx="7" cy="7" r="4.5" />
-            <path d="M10.5 10.5L14 14" />
-          </svg>
+          <SearchIcon size={16} />
         </button>
       </div>
 
@@ -111,6 +126,7 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
           active={activeView === 'inbox'}
           onClick={() => setActiveView('inbox')}
         >
+          <InboxIcon size={16} className="text-blue-500" />
           <span>Inbox</span>
           {inboxCount > 0 && (
             <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{inboxCount}</span>
@@ -121,6 +137,7 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
           active={activeView === 'today'}
           onClick={() => setActiveView('today')}
         >
+          <TodayIcon size={16} className="text-orange-400" />
           <span>Today</span>
           {todayCount > 0 && (
             <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{todayCount}</span>
@@ -128,37 +145,38 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
         </SidebarButton>
 
         <SidebarButton
-          active={activeView === 'someday'}
-          onClick={() => setActiveView('someday')}
-        >
-          <span>Someday</span>
-        </SidebarButton>
-
-        <SidebarButton
           active={activeView === 'all'}
           onClick={() => setActiveView('all')}
         >
-          <span>All</span>
+          <AnytimeIcon size={16} className="text-teal-500" />
+          <span>Anytime</span>
+        </SidebarButton>
+
+        <SidebarButton
+          active={activeView === 'someday'}
+          onClick={() => setActiveView('someday')}
+        >
+          <SomedayIcon size={16} className="text-indigo-400" />
+          <span>Someday</span>
         </SidebarButton>
 
         <div className="pt-4">
           <SidebarButton
-            active={activeView === 'trash'}
-            onClick={() => setActiveView('trash')}
-          >
-            <span>Trash</span>
-            {trashCount > 0 && (
-              <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{trashCount}</span>
-            )}
-          </SidebarButton>
-
-          <SidebarButton
             active={activeView === 'logbook'}
             onClick={() => setActiveView('logbook')}
           >
+            <LogbookIcon size={16} className="text-green-500" />
             <span>Logbook</span>
-            {logbookCount > 0 && (
-              <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{logbookCount}</span>
+          </SidebarButton>
+
+          <SidebarButton
+            active={activeView === 'trash'}
+            onClick={() => setActiveView('trash')}
+          >
+            <TrashIcon size={16} className="text-gray-400" />
+            <span>Trash</span>
+            {trashCount > 0 && (
+              <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{trashCount}</span>
             )}
           </SidebarButton>
         </div>
@@ -182,7 +200,7 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
         {adding ? (
           <input
             autoFocus
-            className="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-[#38383A] rounded-lg outline-none focus:border-gray-300 dark:focus:border-[#48484A] bg-transparent text-gray-900 dark:text-[#F5F5F5] placeholder:text-gray-400 dark:placeholder:text-[#636366]"
+            className="w-full px-3 py-1 text-sm border border-gray-200 dark:border-[#38383A] rounded-lg outline-none focus:border-gray-300 dark:focus:border-[#48484A] bg-transparent text-gray-900 dark:text-[#F5F5F5] placeholder:text-gray-400 dark:placeholder:text-[#636366]"
             placeholder="Project name"
             value={newProjectTitle}
             onChange={e => setNewProjectTitle(e.target.value)}
@@ -198,7 +216,7 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
         ) : (
           <button
             onClick={() => setAdding(true)}
-            className="w-full text-left px-3 py-1.5 text-sm text-gray-400 hover:text-gray-600 dark:hover:text-[#98989D] transition-colors"
+            className="w-full text-left px-3 py-1 text-[13px] text-gray-400 hover:text-gray-600 dark:hover:text-[#98989D] transition-colors"
           >
             + New Project
           </button>
@@ -217,7 +235,7 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
                 <button
                   key={tag.id}
                   onClick={() => setActiveTagId(activeTagId === tag.id ? null : tag.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                  className={`w-full flex items-center gap-2.5 px-3 py-1 text-sm rounded-lg transition-colors ${
                     activeTagId === tag.id
                       ? 'bg-gray-100 dark:bg-[#2C2C2E] text-gray-900 dark:text-[#F5F5F5] font-medium'
                       : 'text-gray-500 dark:text-[#98989D] hover:text-gray-800 dark:hover:text-[#F5F5F5] hover:bg-gray-50 dark:hover:bg-[#252526]'
@@ -239,7 +257,7 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
         <div className="px-3 pt-2">
           <input
             autoFocus
-            className="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-[#38383A] rounded-lg outline-none focus:border-gray-300 dark:focus:border-[#48484A] bg-transparent text-gray-900 dark:text-[#F5F5F5] placeholder:text-gray-400 dark:placeholder:text-[#636366]"
+            className="w-full px-3 py-1 text-sm border border-gray-200 dark:border-[#38383A] rounded-lg outline-none focus:border-gray-300 dark:focus:border-[#48484A] bg-transparent text-gray-900 dark:text-[#F5F5F5] placeholder:text-gray-400 dark:placeholder:text-[#636366]"
             placeholder="Tag name"
             value={newTagTitle}
             onChange={e => setNewTagTitle(e.target.value)}
@@ -261,7 +279,7 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
         <div className="px-3 pt-2">
           <button
             onClick={() => setAddingTag(true)}
-            className="w-full text-left px-3 py-1.5 text-sm text-gray-400 hover:text-gray-600 dark:hover:text-[#98989D] transition-colors"
+            className="w-full text-left px-3 py-1 text-[13px] text-gray-400 hover:text-gray-600 dark:hover:text-[#98989D] transition-colors"
           >
             + New Tag
           </button>
@@ -271,7 +289,7 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
       <div className="px-3 pb-3 mt-3 space-y-1 border-t border-gray-100 dark:border-[#2C2C2E] pt-3">
         <button
           onClick={toggleTheme}
-          className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-gray-300 dark:text-[#636366] hover:text-gray-500 dark:hover:text-[#98989D] transition-colors"
+          className="w-full flex items-center gap-2 px-3 py-1 text-xs text-gray-300 dark:text-[#636366] hover:text-gray-500 dark:hover:text-[#98989D] transition-colors"
         >
           {theme === 'dark' ? (
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -287,7 +305,7 @@ export default function Sidebar({ onSearchOpen }: { onSearchOpen?: () => void })
         </button>
         <button
           onClick={signOut}
-          className="w-full text-left px-3 py-1.5 text-xs text-gray-300 dark:text-[#636366] hover:text-gray-500 dark:hover:text-[#98989D] transition-colors"
+          className="w-full text-left px-3 py-1 text-xs text-gray-300 dark:text-[#636366] hover:text-gray-500 dark:hover:text-[#98989D] transition-colors"
         >
           Sign out
         </button>
@@ -305,7 +323,7 @@ function SidebarButton({ active, onClick, children, className = '' }: {
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+      className={`w-full flex items-center gap-2.5 px-3 py-1 text-sm rounded-lg transition-colors ${
         active
           ? 'bg-gray-100 dark:bg-[#2C2C2E] text-gray-900 dark:text-[#F5F5F5] font-medium'
           : 'text-gray-500 dark:text-[#98989D] hover:text-gray-800 dark:hover:text-[#F5F5F5] hover:bg-gray-50 dark:hover:bg-[#252526]'
