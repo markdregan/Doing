@@ -1,12 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { useTaskStore } from '../store/useTaskStore';
 import { format } from 'date-fns';
-import { TAG_COLOR_MAP } from '../lib/constants';
+import { TAG_COLOR_MAP, PROJECT_COLOR_MAP } from '../lib/constants';
 import DraggableTaskItem from './DraggableTaskItem';
 import TaskItem from './TaskItem';
 import AddTaskInput from './AddTaskInput';
 import EmptyState from './EmptyState';
+import ProgressRing from './ProgressRing';
 import type { Task } from '../types';
 
 function getDateGroupKey(dateStr: string): string {
@@ -39,6 +40,51 @@ export default function TaskList() {
   const activeTagId = useTaskStore(s => s.activeTagId);
   const setActiveTagId = useTaskStore(s => s.setActiveTagId);
   const emptyTrash = useTaskStore(s => s.emptyTrash);
+  const updateProject = useTaskStore(s => s.updateProject);
+
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingTitleValue, setEditingTitleValue] = useState('');
+  const titleInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingTitle && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
+    }
+  }, [editingTitle]);
+
+  const completionTimestamps = useRef<Map<string, number>>(new Map());
+  const [pendingVersion, setPendingVersion] = useState(0);
+
+  // Detect newly completed tasks synchronously during render
+  // (before useMemos evaluate — prevents flash to completed section)
+  for (const task of tasks) {
+    if (task.completed) {
+      if (!completionTimestamps.current.has(task.id)) {
+        completionTimestamps.current.set(task.id, Date.now());
+      }
+    } else {
+      completionTimestamps.current.delete(task.id);
+    }
+  }
+
+  const isPendingComplete = (id: string): boolean => {
+    const ts = completionTimestamps.current.get(id);
+    return ts !== undefined && Date.now() - ts < 3000;
+  };
+
+  useLayoutEffect(() => {
+    const timeouts: ReturnType<typeof setTimeout>[] = [];
+    for (const [, ts] of completionTimestamps.current) {
+      const elapsed = Date.now() - ts;
+      if (elapsed < 3000) {
+        timeouts.push(setTimeout(() => {
+          setPendingVersion(v => v + 1);
+        }, 3000 - elapsed));
+      }
+    }
+    return () => timeouts.forEach(clearTimeout);
+  }, [tasks, pendingVersion]);
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
@@ -68,7 +114,7 @@ export default function TaskList() {
       filtered = filtered.filter(t => !t.completed && !t.isSomeday && t.projectId === null);
       filtered.sort((a, b) => a.sortOrder - b.sortOrder);
     } else if (activeView === 'today') {
-      filtered = filtered.filter(t => !t.completed && !t.isSomeday && (t.isToday || t.dueDate === todayStr));
+      filtered = filtered.filter(t => (!t.completed || isPendingComplete(t.id)) && !t.isSomeday && (t.isToday || t.dueDate === todayStr));
       filtered.sort((a, b) => {
         const aOverdue = a.dueDate && a.dueDate < todayStr ? 1 : 0;
         const bOverdue = b.dueDate && b.dueDate < todayStr ? 1 : 0;
@@ -83,7 +129,7 @@ export default function TaskList() {
       filtered = filtered.filter(t => !t.completed && !t.isSomeday);
       filtered.sort((a, b) => a.sortOrder - b.sortOrder);
     } else if (activeView === 'project' && activeProjectId) {
-      filtered = filtered.filter(t => !t.completed && !t.isSomeday && t.projectId === activeProjectId);
+      filtered = filtered.filter(t => (!t.completed || isPendingComplete(t.id)) && !t.isSomeday && t.projectId === activeProjectId);
       filtered.sort((a, b) => a.sortOrder - b.sortOrder);
     }
 
@@ -92,7 +138,7 @@ export default function TaskList() {
     }
 
     return filtered;
-  }, [tasks, activeView, activeProjectId, activeTagId, todayStr]);
+  }, [tasks, activeView, activeProjectId, activeTagId, todayStr, pendingVersion]);
 
   const logbookGroups = useMemo(() => {
     if (activeView !== 'logbook') return null;
@@ -111,10 +157,10 @@ export default function TaskList() {
     let result: Task[] = [];
 
     if (activeView === 'today') {
-      result = tasks.filter(t => !t.deletedAt && t.completed && (t.isToday || t.dueDate === todayStr));
+      result = tasks.filter(t => !t.deletedAt && t.completed && !isPendingComplete(t.id) && (t.isToday || t.dueDate === todayStr));
     } else if (activeView === 'project' && activeProjectId) {
       result = tasks
-        .filter(t => !t.deletedAt && t.completed && !t.isSomeday && t.projectId === activeProjectId)
+        .filter(t => !t.deletedAt && t.completed && !isPendingComplete(t.id) && !t.isSomeday && t.projectId === activeProjectId)
         .sort((a, b) => {
           const aTime = a.completedAt ? new Date(a.completedAt).getTime() : 0;
           const bTime = b.completedAt ? new Date(b.completedAt).getTime() : 0;
@@ -127,7 +173,7 @@ export default function TaskList() {
     }
 
     return result;
-  }, [tasks, activeView, activeProjectId, activeTagId, todayStr]);
+  }, [tasks, activeView, activeProjectId, activeTagId, todayStr, pendingVersion]);
 
   const isTrash = activeView === 'trash';
   const isLogbook = activeView === 'logbook';
@@ -156,15 +202,73 @@ export default function TaskList() {
     title = project?.title ?? 'Project';
   }
 
+  const projectHeaderData = useMemo(() => {
+    if (activeView !== 'project' || !activeProjectId) return null;
+    const project = projects.find(p => p.id === activeProjectId);
+    const projectTasksAll = tasks.filter(t => !t.deletedAt && t.projectId === activeProjectId && !t.isSomeday);
+    const comp = projectTasksAll.filter(t => t.completed).length;
+    const tot = projectTasksAll.length;
+    return {
+      project,
+      percentage: tot > 0 ? (comp / tot) * 100 : 0,
+    };
+  }, [activeView, activeProjectId, tasks, projects]);
+
   const currentProjectId = activeView === 'project' ? activeProjectId : null;
 
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-[680px] mx-auto py-16 px-10">
-        <div className="mb-8 flex items-end justify-between">
-          <div>
-            <h1 className="text-[28px] font-bold text-gray-900 dark:text-[#F5F5F5]">{title}</h1>
-            {subtitle && <p className="text-sm text-gray-400 dark:text-[#98989D] mt-1">{subtitle}</p>}
+        <div className="mb-8 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {projectHeaderData && (
+              <ProgressRing
+                percentage={projectHeaderData.percentage}
+                size={24}
+                strokeWidth={2}
+                color={projectHeaderData.project ? PROJECT_COLOR_MAP[projectHeaderData.project.color] : undefined}
+              />
+            )}
+            <div>
+              {activeView === 'project' && projectHeaderData?.project ? (
+                editingTitle ? (
+                  <input
+                    ref={titleInputRef}
+                    className="text-[28px] font-bold text-gray-900 dark:text-[#F5F5F5] outline-none bg-transparent w-full"
+                    value={editingTitleValue}
+                    onChange={e => setEditingTitleValue(e.target.value)}
+                    onBlur={() => {
+                      if (editingTitleValue.trim() && editingTitleValue.trim() !== projectHeaderData.project!.title) {
+                        updateProject(projectHeaderData.project!.id, { title: editingTitleValue.trim() });
+                      }
+                      setEditingTitle(false);
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        (e.target as HTMLInputElement).blur();
+                      }
+                      if (e.key === 'Escape') {
+                        setEditingTitleValue(projectHeaderData.project!.title);
+                        setEditingTitle(false);
+                      }
+                    }}
+                  />
+                ) : (
+                  <h1
+                    className="text-[28px] font-bold text-gray-900 dark:text-[#F5F5F5] cursor-text"
+                    onClick={() => {
+                      setEditingTitleValue(projectHeaderData.project!.title);
+                      setEditingTitle(true);
+                    }}
+                  >
+                    {title}
+                  </h1>
+                )
+              ) : (
+                <h1 className="text-[28px] font-bold text-gray-900 dark:text-[#F5F5F5]">{title}</h1>
+              )}
+              {subtitle && <p className="text-sm text-gray-400 dark:text-[#98989D] mt-1">{subtitle}</p>}
+            </div>
           </div>
           {isTrash && filteredTasks.length > 0 && (
             <button
@@ -213,7 +317,7 @@ export default function TaskList() {
               {logbookGroups.map(group => (
                 <div key={group.label}>
                   <div className="mt-6 mb-2 flex items-center gap-3 first:mt-0">
-                    <span className="text-xs font-medium text-gray-400 dark:text-[#636366] uppercase tracking-wider">
+                    <span className="text-[11px] font-semibold text-gray-400 dark:text-[#636366] uppercase tracking-[0.08em]">
                       {group.label === 'Today' ? 'Completed Today' :
                        group.label === 'Yesterday' ? 'Completed Yesterday' :
                        group.label === 'This Week' ? 'Completed This Week' :
@@ -246,10 +350,10 @@ export default function TaskList() {
         {completedTasks.length > 0 && (
           <>
             <div className="mt-8 mb-3 flex items-center gap-3">
-              <span className="text-xs font-medium text-gray-300 dark:text-[#636366] uppercase tracking-wider">Completed</span>
+              <span className="text-[11px] font-semibold text-gray-300 dark:text-[#636366] uppercase tracking-[0.08em]">Completed</span>
               <div className="flex-1 h-px bg-gray-100 dark:bg-[#2C2C2E]" />
             </div>
-            <div className="space-y-0 opacity-50">
+            <div className="space-y-0 opacity-60">
               {completedTasks.map(task => (
                 <DraggableTaskItem key={task.id} task={task} />
               ))}

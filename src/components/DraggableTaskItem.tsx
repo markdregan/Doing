@@ -20,8 +20,8 @@ export default function DraggableTaskItem({ task }: { task: Task }) {
   }
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <TaskItem task={task} />
+    <div ref={setNodeRef} style={style} {...attributes}>
+      <TaskItem task={task} dragListeners={listeners} />
     </div>
   )
 }
