@@ -11,7 +11,8 @@ export default function InvitePage() {
   const [status, setStatus] = useState<'checking' | 'signing_in' | 'redeeming' | 'done' | 'error'>('checking');
   const [errorMsg, setErrorMsg] = useState('');
 
-  const token = window.location.hash.replace('#token=', '');
+  const params = new URLSearchParams(window.location.hash.replace('#', '?'));
+  const token = params.get('token') ?? '';
 
   useEffect(() => {
     if (!token) {

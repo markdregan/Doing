@@ -3,6 +3,12 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts'
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 const PUBLIC_ORIGIN = Deno.env.get('PUBLIC_ORIGIN')
 
+function log(level: 'info' | 'warn' | 'error', message: string, data?: Record<string, unknown>) {
+  const entry = { level, message, timestamp: new Date().toISOString(), ...data }
+  if (level === 'error') console.error(JSON.stringify(entry))
+  else console.log(JSON.stringify(entry))
+}
+
 interface InvitePayload {
   email: string
   token: string
@@ -16,7 +22,7 @@ serve(async (req) => {
   }
 
   if (!RESEND_API_KEY) {
-    console.error('RESEND_API_KEY not configured')
+    log('error', 'RESEND_API_KEY not configured')
     return new Response('Email service not configured', { status: 500 })
   }
 
@@ -31,6 +37,8 @@ serve(async (req) => {
     if (!origin) {
       return new Response('Server origin not configured', { status: 500 })
     }
+
+    log('info', 'sending invite email', { email, projectTitle, inviterName, origin })
 
     const inviteLink = `${origin}/invite#token=${token}`
 
@@ -94,20 +102,20 @@ serve(async (req) => {
     const data = await res.json()
 
     if (!res.ok) {
-      console.error('Resend API error:', JSON.stringify(data))
+      log('error', 'Resend API error', { status: res.status, data })
       return new Response(JSON.stringify({ error: data }), {
         status: 502,
         headers: { 'Content-Type': 'application/json' },
       })
     }
 
-    console.log('Email sent:', data)
+    log('info', 'email sent', { id: data.id, email })
 
     return new Response(JSON.stringify({ success: true, id: data.id }), {
       headers: { 'Content-Type': 'application/json' },
     })
   } catch (err) {
-    console.error('Failed to send email:', err)
+    log('error', 'failed to send email', { error: err instanceof Error ? err.message : String(err) })
     return new Response(JSON.stringify({ error: 'Failed to send email' }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

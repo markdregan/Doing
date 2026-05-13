@@ -1,7 +1,10 @@
 import { create } from 'zustand'
 import { supabase } from '../lib/supabase'
-import type { Task, Project, Tag, ChecklistItem, ViewType, ProjectColor, TagColor, RepeatInterval, ProjectShare, Profile } from '../types'
-import { PROJECT_COLORS, TAG_COLORS } from '../types'
+import { logger as parentLogger } from '../lib/logger'
+import type { Task, TaskStatus, Project, Tag, ChecklistItem, ViewType, ProjectColor, TagColor, RepeatInterval, ProjectShare, Profile, PlanDraft, AiGenerationMetadata, AgentQuestion } from '../types'
+import { PROJECT_COLOR_MAP, TAG_COLOR_MAP } from '../lib/constants'
+
+const log = parentLogger.child({ module: 'useTaskStore' })
 
 function computeNextDate(interval: RepeatInterval, fromDate: string | null): string | null {
   const base = fromDate ? new Date(fromDate + 'T00:00:00') : new Date()
@@ -39,6 +42,7 @@ function taskFromRow(row: Record<string, unknown>): Task {
     title: row.title as string,
     notes: (row.notes as string) ?? '',
     projectId: (row.project_id as string) ?? null,
+    status: (row.status as TaskStatus) ?? 'not_started',
     dueDate: (row.due_date as string) ?? null,
     isToday: row.is_today as boolean,
     isSomeday: (row.is_someday as boolean) ?? false,
@@ -61,6 +65,7 @@ function taskToRow(task: Task, userId: string) {
     title: task.title,
     notes: task.notes,
     project_id: task.projectId,
+    status: task.status,
     due_date: task.dueDate,
     is_today: task.isToday,
     is_someday: task.isSomeday,
@@ -83,6 +88,7 @@ function projectFromRow(row: Record<string, unknown>): Project {
     sortOrder: (row.sort_order as number) ?? 0,
     createdAt: row.created_at as string,
     userId: (row.user_id as string) ?? '',
+    aiGenerationMetadata: (row.ai_generation_metadata as AiGenerationMetadata | null) ?? null,
   }
 }
 
@@ -94,6 +100,7 @@ function projectToRow(project: Project, userId: string) {
     color: project.color,
     sort_order: project.sortOrder,
     created_at: project.createdAt,
+    ai_generation_metadata: project.aiGenerationMetadata,
   }
 }
 
@@ -182,6 +189,8 @@ interface TaskStore {
   trashUndo: TrashUndo | null
   sharedProjectIds: string[]
   projectShares: ProjectShare[]
+  agentQuestions: AgentQuestion[]
+  rightPanelOpen: boolean
 
   initialize: (userId: string) => Promise<void>
   seedOnboardingData: () => Promise<void>
@@ -195,10 +204,12 @@ interface TaskStore {
   emptyTrash: () => Promise<void>
   clearTrashUndo: () => void
   toggleTask: (id: string) => Promise<void>
+  setTaskStatus: (id: string, status: TaskStatus) => Promise<void>
 
-  addProject: (title: string) => Promise<void>
+  addProject: (title: string) => Promise<string>
   updateProject: (id: string, updates: Partial<Project>) => Promise<void>
   deleteProject: (id: string) => Promise<void>
+  materializePlan: (planDraft: PlanDraft, aiMetadata: AiGenerationMetadata) => Promise<string | null>
 
   setActiveView: (view: ViewType, projectId?: string) => void
   moveTaskToToday: (id: string) => Promise<void>
@@ -232,6 +243,12 @@ interface TaskStore {
   redeemInviteToken: (token: string) => Promise<boolean>
   getProfileByEmail: (email: string) => Promise<Profile | null>
   refreshProfiles: () => Promise<void>
+
+  loadAgentQuestions: () => Promise<void>
+  respondToQuestion: (questionId: string, response: string) => Promise<void>
+  addAgentQuestion: (question: AgentQuestion) => void
+  toggleRightPanel: () => void
+  setRightPanelOpen: (open: boolean) => void
 }
 
 export const useTaskStore = create<TaskStore>()((set, get) => ({
@@ -241,7 +258,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
   tags: [],
   checklistItems: [],
   profiles: [],
-  activeView: 'inbox' as ViewType,
+  activeView: 'home' as ViewType,
   activeProjectId: null,
   activeTagId: null,
   dataLoading: true,
@@ -249,34 +266,57 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
   sharedProjectIds: [],
   _lastInviteTime: {},
   projectShares: [],
+  agentQuestions: [],
+  rightPanelOpen: true,
   _channels: [],
 
   initialize: async (userId) => {
+    log.info('initialize_start', { userId })
+
     set({ dataLoading: true, userId })
 
     get()._channels.forEach(c => supabase.removeChannel(c))
     set({ _channels: [] })
 
-    const [projectsRes, tasksRes, tagsRes, taskTagsRes, checklistRes, sharesRes, profilesRes] = await Promise.all([
-      supabase.from('projects').select('*').order('sort_order'),
-      supabase.from('tasks').select('*').order('sort_order'),
-      supabase.from('tags').select('*').eq('user_id', userId).order('title'),
-      supabase.from('task_tags').select('*'),
-      supabase.from('task_checklist_items').select('*'),
-      supabase.from('project_shares').select('*').or(`shared_by.eq.${userId},shared_with.eq.${userId}`),
-      supabase.from('profiles').select('*').limit(200),
-    ])
+    log.debug('initialize_fetching_data', { userId })
 
-    const tasks = (tasksRes.data ?? []).map(taskFromRow)
-    const projectShares = (sharesRes.data ?? []).map(projectShareFromRow)
-    const profiles = (profilesRes.data ?? []).map(profileFromRow)
+    let projectsRes, tasksRes, tagsRes, taskTagsRes, checklistRes, sharesRes, profilesRes
+
+    try {
+      const results = await Promise.all([
+        supabase.from('projects').select('*').order('sort_order'),
+        supabase.from('tasks').select('*').order('sort_order'),
+        supabase.from('tags').select('*').eq('user_id', userId).order('title'),
+        supabase.from('task_tags').select('*'),
+        supabase.from('task_checklist_items').select('*'),
+        supabase.from('project_shares').select('*').or(`shared_by.eq.${userId},shared_with.eq.${userId}`),
+        supabase.from('profiles').select('*').limit(200),
+      ])
+      ;[projectsRes, tasksRes, tagsRes, taskTagsRes, checklistRes, sharesRes, profilesRes] = results
+    } catch (err) {
+      log.error('initialize_promise_all_failed', err, { userId })
+      set({ dataLoading: false })
+      return
+    }
+
+    if (projectsRes?.error) log.error('initialize_fetch_failed', projectsRes.error, { entity: 'projects' })
+    if (tasksRes?.error) log.error('initialize_fetch_failed', tasksRes.error, { entity: 'tasks' })
+    if (tagsRes?.error) log.error('initialize_fetch_failed', tagsRes.error, { entity: 'tags' })
+    if (taskTagsRes?.error) log.error('initialize_fetch_failed', taskTagsRes.error, { entity: 'task_tags' })
+    if (checklistRes?.error) log.error('initialize_fetch_failed', checklistRes.error, { entity: 'checklist_items' })
+    if (sharesRes?.error) log.error('initialize_fetch_failed', sharesRes.error, { entity: 'project_shares' })
+    if (profilesRes?.error) log.error('initialize_fetch_failed', profilesRes.error, { entity: 'profiles' })
+
+    const tasks = (tasksRes?.data ?? []).map(taskFromRow)
+    const projectShares = (sharesRes?.data ?? []).map(projectShareFromRow)
+    const profiles = (profilesRes?.data ?? []).map(profileFromRow)
 
     const sharedProjectIds = projectShares
       .filter(s => s.sharedWith === userId && s.status === 'active')
       .map(s => s.projectId)
 
     const taskTagMap = new Map<string, string[]>()
-    for (const row of (taskTagsRes.data ?? []) as Array<{ task_id: string; tag_id: string }>) {
+    for (const row of (taskTagsRes?.data ?? []) as Array<{ task_id: string; tag_id: string }>) {
       const existing = taskTagMap.get(row.task_id)
       if (existing) existing.push(row.tag_id)
       else taskTagMap.set(row.task_id, [row.tag_id])
@@ -287,19 +327,32 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       if (ids) task.tagIds = ids
     }
 
-    const projects = (projectsRes.data ?? []).map(projectFromRow)
-    const tags = (tagsRes.data ?? []).map(tagFromRow)
-    const checklistItems = (checklistRes.data ?? []).map(checklistItemFromRow)
+    const projects = (projectsRes?.data ?? []).map(projectFromRow)
+    const tags = (tagsRes?.data ?? []).map(tagFromRow)
+    const checklistItems = (checklistRes?.data ?? []).map(checklistItemFromRow)
 
     const isFirstTime = tasks.length === 0 && projects.length === 0 && tags.length === 0
 
     set({ projects, tasks, tags, checklistItems, projectShares, sharedProjectIds, profiles })
 
+    log.info('initialize_data_loaded', {
+      projects: projects.length,
+      tasks: tasks.length,
+      tags: tags.length,
+      checklistItems: checklistItems.length,
+      projectShares: projectShares.length,
+      profiles: profiles.length,
+      sharedProjectIds: sharedProjectIds.length,
+      isFirstTime,
+    })
+
     if (isFirstTime) {
+      log.info('initialize_seeding_onboarding_data')
       await get().seedOnboardingData()
     }
 
     set({ dataLoading: false })
+    log.info('initialize_complete')
 
     const tasksChannel = supabase.channel(`tasks-${userId}`)
       .on('postgres_changes' as never,
@@ -337,6 +390,8 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       .subscribe()
 
     set(s => ({ _channels: [...s._channels, tasksChannel, sharesChannel] }))
+
+    await get().loadAgentQuestions()
   },
 
   seedOnboardingData: async () => {
@@ -369,10 +424,10 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     const projSide = uid()
 
     const projects: Project[] = [
-      { id: projWelcome, title: 'Welcome to Things', color: 'blue' as const, sortOrder: 0, createdAt: now, userId },
-      { id: projVacation, title: 'Plan a Vacation', color: 'green' as const, sortOrder: 1, createdAt: now, userId },
-      { id: projHome, title: 'Home Projects', color: 'orange' as const, sortOrder: 2, createdAt: now, userId },
-      { id: projSide, title: 'Side Projects', color: 'purple' as const, sortOrder: 3, createdAt: now, userId },
+      { id: projWelcome, title: 'Welcome to Doing', color: 'blue' as const, sortOrder: 0, createdAt: now, userId, aiGenerationMetadata: null },
+      { id: projVacation, title: 'Plan a Vacation', color: 'green' as const, sortOrder: 1, createdAt: now, userId, aiGenerationMetadata: null },
+      { id: projHome, title: 'Home Projects', color: 'orange' as const, sortOrder: 2, createdAt: now, userId, aiGenerationMetadata: null },
+      { id: projSide, title: 'Side Projects', color: 'purple' as const, sortOrder: 3, createdAt: now, userId, aiGenerationMetadata: null },
     ]
 
     let s = 0
@@ -410,143 +465,143 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
         id: tkWelcomeNavigate, title: 'Navigate with the sidebar',
         notes: 'The sidebar shows your views: Inbox for quick capture, Today for what\'s on your plate, Someday for ideas, All for everything, and your Projects below.',
         projectId: projWelcome, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkWelcomeQuickEntry, title: 'Try Quick Entry (\u2318K)',
         notes: 'Press \u2318K (or Ctrl+K on Windows) to open the command palette. Add tasks from anywhere without leaving your current view.',
         projectId: projWelcome, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkWelcomeToday, title: 'Tag a task with Today',
         notes: 'This task appears in Today because it has the today flag. Click the sun icon on any task or set it in Quick Entry to use this view.',
         projectId: projWelcome, dueDate: null, isToday: true, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkWelcomeChecklist, title: 'Try a checklist',
         notes: 'Break tasks into smaller steps with checklists. Click the checklist icon on this task to see the items below.',
         projectId: projWelcome, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkWelcomeComplete, title: 'Complete this task to see it in Logbook',
         notes: '',
         projectId: projWelcome, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
 
       {
         id: tkVacationFlights, title: 'Book flights',
         notes: 'Compare prices on Skyscanner and book early for the best deals.',
         projectId: projVacation, dueDate: inDays(30), isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkVacationHotels, title: 'Research hotels',
         notes: '',
         projectId: projVacation, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkVacationInsurance, title: 'Get travel insurance',
         notes: 'Check if your credit card offers travel insurance. World Nomads is a good alternative.',
         projectId: projVacation, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkVacationPack, title: 'Pack suitcase',
         notes: '',
         projectId: projVacation, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkVacationBank, title: 'Notify bank of travel',
         notes: '',
         projectId: projVacation, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkVacationTransfer, title: 'Book airport transfer',
         notes: '',
         projectId: projVacation, dueDate: inDays(30), isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
 
       {
         id: tkHomeFaucet, title: 'Fix leaky faucet',
         notes: 'Check the washer in the kitchen faucet. Might need a replacement from the hardware store.',
         projectId: projHome, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkHomeHerbs, title: 'Plant herbs on balcony',
         notes: 'Basil, mint, and rosemary would be great for cooking.',
         projectId: projHome, dueDate: null, isToday: true, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkHomeKitchen, title: 'Deep clean kitchen',
         notes: '',
         projectId: projHome, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkHomeStretch, title: 'Morning stretch',
         notes: 'Ten minutes of stretching to start the day right.',
         projectId: projHome, dueDate: null, isToday: true, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: 'daily' as const, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: 'daily' as const, status: 'not_started', assignedTo: null, assignedBy: null,
       },
 
       {
         id: tkSideRust, title: 'Learn Rust',
         notes: '',
         projectId: projSide, dueDate: null, isToday: false, isSomeday: true,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkSideAtomic, title: 'Read Atomic Habits',
         notes: 'Highly recommended by multiple friends.',
         projectId: projSide, dueDate: null, isToday: false, isSomeday: true,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkSideStory, title: 'Write a short story',
         notes: '',
         projectId: projSide, dueDate: null, isToday: false, isSomeday: true,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkSidePortfolio, title: 'Design personal portfolio',
         notes: '',
         projectId: projSide, dueDate: null, isToday: false, isSomeday: true,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
 
       {
         id: tkInboxGym, title: 'Renew gym membership',
         notes: '',
         projectId: null, dueDate: inDays(14), isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkInboxDentist, title: 'Schedule dentist appointment',
         notes: 'Last visit was eight months ago. Time for a check-up.',
         projectId: null, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkInboxCard, title: 'Review credit card statement',
         notes: '',
         projectId: null, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
       {
         id: tkInboxBirthday, title: 'Plan birthday dinner',
         notes: 'Check which restaurants have availability.',
         projectId: null, dueDate: null, isToday: true, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, assignedTo: null, assignedBy: null,
+        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
       },
     ]
 
@@ -595,7 +650,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const errors = results.filter(r => r.error)
     if (errors.length) {
-      console.error('Failed to seed onboarding data:', errors)
+      log.error('seed_onboarding_data_failed', errors)
       return
     }
 
@@ -620,7 +675,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       tags: [],
       checklistItems: [],
       profiles: [],
-      activeView: 'inbox',
+      activeView: 'home',
       activeProjectId: null,
       activeTagId: null,
       dataLoading: true,
@@ -642,6 +697,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const task: Task = {
       id, title, notes: notes ?? '', projectId: projectId ?? null,
+      status: 'not_started',
       dueDate: dueDate ?? null, isToday: isToday ?? false,
       isSomeday: isSomeday ?? false,
       completed: false, completedAt: null, deletedAt: null,
@@ -654,7 +710,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('tasks').insert(taskToRow(task, userId))
     if (error) {
-      console.error('Failed to add task:', error)
+      log.error('add_task_failed', error, { taskId: id, title: task.title })
       set(state => ({ tasks: state.tasks.filter(t => t.id !== id) }))
       return
     }
@@ -662,7 +718,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     if (tagIds && tagIds.length > 0) {
       const tagRows = tagIds.map(tagId => ({ task_id: id, tag_id: tagId }))
       const { error: tagError } = await supabase.from('task_tags').insert(tagRows)
-      if (tagError) console.error('Failed to add task tags:', tagError)
+      if (tagError) log.error('add_task_tags_failed', tagError, { taskId: id })
     }
   },
 
@@ -676,7 +732,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('tasks').update(taskToRow({ ...get().tasks.find(t => t.id === id), ...updates } as Task, userId)).eq('id', id)
     if (error) {
-      console.error('Failed to update task:', error)
+      log.error('update_task_failed', error, { taskId: id })
     }
   },
 
@@ -693,7 +749,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('tasks').update({ deleted_at: now }).eq('id', id)
     if (error) {
-      console.error('Failed to soft-delete task:', error)
+      log.error('soft_delete_task_failed', error, { taskId: id })
       set(state => ({
         tasks: state.tasks.map(t => (t.id === id ? prev : t)),
         trashUndo: null,
@@ -709,7 +765,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('tasks').update({ deleted_at: null }).eq('id', id)
     if (error) {
-      console.error('Failed to restore task:', error)
+      log.error('restore_task_failed', error, { taskId: id })
     }
   },
 
@@ -725,7 +781,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const errors = results.filter(r => r.error)
     if (errors.length) {
-      console.error('Failed to empty trash:', errors)
+      log.error('empty_trash_failed', errors, { count: trashed.length })
       set(state => ({ tasks: [...state.tasks, ...trashed] }))
     }
   },
@@ -747,7 +803,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('tasks').delete().eq('id', id)
     if (error) {
-      console.error('Failed to delete task:', error)
+      log.error('delete_task_failed', error, { taskId: id })
       set(state => ({
         tasks: [...state.tasks, prev],
         checklistItems: [...state.checklistItems, ...prevItems],
@@ -778,6 +834,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
         title: prev.title,
         notes: prev.notes,
         projectId: prev.projectId,
+        status: 'not_started',
         dueDate: nextDueDate,
         isToday: prev.isToday,
         isSomeday: false,
@@ -808,32 +865,44 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const errors = results.filter(r => r.error)
     if (errors.length) {
-      console.error('Failed to toggle task:', errors)
+      log.error('toggle_task_failed', errors, { taskId: id, completing })
       set(state => ({
         tasks: state.tasks.filter(t => t.id !== repeatTaskId).map(t => (t.id === id ? prev : t)),
       }))
     }
   },
 
+  setTaskStatus: async (id, status) => {
+    set(state => ({
+      tasks: state.tasks.map(t => (t.id === id ? { ...t, status } : t)),
+    }))
+    const { error } = await supabase.from('tasks').update({ status }).eq('id', id)
+    if (error) {
+      log.error('set_task_status_failed', error, { taskId: id, status })
+    }
+  },
+
   addProject: async (title) => {
     const userId = get().userId
-    if (!userId) return
+    if (!userId) return ''
 
-    const usedColors = get().projects.map(p => p.color)
-    const color: ProjectColor = PROJECT_COLORS.find(c => !usedColors.includes(c)) ?? 'gray'
+    const usedColors = new Set(get().projects.map(p => p.color))
+    const color: ProjectColor = (Object.keys(PROJECT_COLOR_MAP) as ProjectColor[]).find(c => !usedColors.has(c)) ?? 'gray'
     const sortOrder = get().projects.length
 
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
-    const project: Project = { id, title, color, sortOrder, createdAt: now, userId }
+    const project: Project = { id, title, color, sortOrder, createdAt: now, userId, aiGenerationMetadata: null }
 
     set(state => ({ projects: [...state.projects, project] }))
 
     const { error } = await supabase.from('projects').insert(projectToRow(project, userId))
     if (error) {
-      console.error('Failed to add project:', error)
+      log.error('add_project_failed', error, { projectId: id, title })
       set(state => ({ projects: state.projects.filter(p => p.id !== id) }))
+      return ''
     }
+    return id
   },
 
   updateProject: async (id, updates) => {
@@ -848,7 +917,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('projects').update(projectToRow({ ...prev, ...updates } as Project, userId)).eq('id', id)
     if (error) {
-      console.error('Failed to update project:', error)
+      log.error('update_project_failed', error, { projectId: id })
     }
   },
 
@@ -872,12 +941,42 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     ])
 
     if (projectRes.error || tasksRes.error) {
-      console.error('Failed to delete project:', projectRes.error ?? tasksRes.error)
+      log.error('delete_project_failed', projectRes.error ?? tasksRes.error, { projectId: id })
       set(prevState)
     }
   },
 
+  materializePlan: async (planDraft, aiMetadata) => {
+    const userId = get().userId
+    if (!userId) return null
+
+    const projectId = await get().addProject(planDraft.projectTitle)
+    if (!projectId) {
+      return null
+    }
+
+    get().updateProject(projectId, {
+      color: planDraft.projectColor,
+      aiGenerationMetadata: aiMetadata,
+    })
+
+    for (let i = 0; i < planDraft.tasks.length; i++) {
+      const task = planDraft.tasks[i]
+      const dueDate = task.dueDate && task.dueDate.trim() ? task.dueDate : undefined
+      await get().addTask({
+        title: task.title,
+        notes: task.notes ?? '',
+        projectId,
+        dueDate,
+        tagIds: [],
+      })
+    }
+
+    return projectId
+  },
+
   setActiveView: (view, projectId) => {
+    log.info('set_active_view', { view, projectId })
     set({
       activeView: view,
       activeProjectId: view === 'project' ? projectId ?? null : null,
@@ -891,7 +990,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('tasks').update({ is_today: true }).eq('id', id)
     if (error) {
-      console.error('Failed to move task to today:', error)
+      log.error('move_task_to_today_failed', error, { taskId: id })
     }
   },
 
@@ -902,7 +1001,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('tasks').update({ is_today: false }).eq('id', id)
     if (error) {
-      console.error('Failed to remove task from today:', error)
+      log.error('remove_task_from_today_failed', error, { taskId: id })
     }
   },
 
@@ -913,7 +1012,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('tasks').update({ is_someday: true }).eq('id', id)
     if (error) {
-      console.error('Failed to move task to someday:', error)
+      log.error('move_task_to_someday_failed', error, { taskId: id })
     }
   },
 
@@ -924,7 +1023,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('tasks').update({ is_someday: false }).eq('id', id)
     if (error) {
-      console.error('Failed to remove task from someday:', error)
+      log.error('remove_task_from_someday_failed', error, { taskId: id })
     }
   },
 
@@ -946,7 +1045,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     )
 
     const errors = results.filter(r => r.error)
-    if (errors.length) console.error('Failed to reorder tasks:', errors)
+    if (errors.length) log.error('reorder_tasks_failed', errors)
   },
 
   reorderProjects: async (orderedIds) => {
@@ -967,7 +1066,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     )
 
     const errors = results.filter(r => r.error)
-    if (errors.length) console.error('Failed to reorder projects:', errors)
+    if (errors.length) log.error('reorder_projects_failed', errors)
   },
 
   moveTaskToProject: async (taskId, projectId) => {
@@ -977,7 +1076,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('tasks').update({ project_id: projectId }).eq('id', taskId)
     if (error) {
-      console.error('Failed to move task:', error)
+      log.error('move_task_failed', error, { taskId, projectId })
     }
   },
 
@@ -987,15 +1086,15 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const tagId = crypto.randomUUID()
     const now = new Date().toISOString()
-    const usedColors = get().tags.map(t => t.color)
-    const color: TagColor = TAG_COLORS.find(c => !usedColors.includes(c)) ?? 'gray'
+    const usedColors = new Set(get().tags.map(t => t.color))
+    const color: TagColor = (Object.keys(TAG_COLOR_MAP) as TagColor[]).find(c => !usedColors.has(c)) ?? 'gray'
     const tag: Tag = { id: tagId, title, color, createdAt: now }
 
     set(state => ({ tags: [...state.tags, tag] }))
 
     const { error } = await supabase.from('tags').insert(tagToRow(tag, userId))
     if (error) {
-      console.error('Failed to add tag:', error)
+      log.error('add_tag_failed', error, { tagId, title })
       set(state => ({ tags: state.tags.filter(t => t.id !== tagId) }))
     }
   },
@@ -1007,7 +1106,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('tags').update(updates).eq('id', id)
     if (error) {
-      console.error('Failed to update tag:', error)
+      log.error('update_tag_failed', error, { tagId: id })
     }
   },
 
@@ -1029,7 +1128,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     ])
 
     if (tagRes.error || taskTagsRes.error) {
-      console.error('Failed to delete tag:', tagRes.error ?? taskTagsRes.error)
+      log.error('delete_tag_failed', tagRes.error ?? taskTagsRes.error, { tagId: id })
       set(prev)
     }
   },
@@ -1052,7 +1151,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     if (hasTag) {
       const { error } = await supabase.from('task_tags').delete().eq('task_id', taskId).eq('tag_id', tagId)
       if (error) {
-        console.error('Failed to remove task tag:', error)
+        log.error('remove_task_tag_failed', error, { taskId, tagId })
         set(state => ({
           tasks: state.tasks.map(t => (t.id === taskId ? prev : t)),
         }))
@@ -1060,7 +1159,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     } else {
       const { error } = await supabase.from('task_tags').insert({ task_id: taskId, tag_id: tagId })
       if (error) {
-        console.error('Failed to add task tag:', error)
+        log.error('add_task_tag_failed', error, { taskId, tagId })
         set(state => ({
           tasks: state.tasks.map(t => (t.id === taskId ? prev : t)),
         }))
@@ -1086,7 +1185,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('task_checklist_items').insert(checklistItemToRow(item))
     if (error) {
-      console.error('Failed to add checklist item:', error)
+      log.error('add_checklist_item_failed', error, { itemId: id, taskId })
       set(state => ({
         checklistItems: state.checklistItems.filter(i => i.id !== id),
       }))
@@ -1105,7 +1204,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('task_checklist_items').update({ completed: updated.completed }).eq('id', id)
     if (error) {
-      console.error('Failed to toggle checklist item:', error)
+      log.error('toggle_checklist_item_failed', error, { itemId: id })
       set(state => ({
         checklistItems: state.checklistItems.map(i => (i.id === id ? prev : i)),
       }))
@@ -1119,7 +1218,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('task_checklist_items').update({ title }).eq('id', id)
     if (error) {
-      console.error('Failed to update checklist item:', error)
+      log.error('update_checklist_item_failed', error, { itemId: id })
     }
   },
 
@@ -1133,7 +1232,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('task_checklist_items').delete().eq('id', id)
     if (error) {
-      console.error('Failed to delete checklist item:', error)
+      log.error('delete_checklist_item_failed', error, { itemId: id })
       set(state => ({
         checklistItems: [...state.checklistItems, prev],
       }))
@@ -1155,7 +1254,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     )
 
     const errors = results.filter(r => r.error)
-    if (errors.length) console.error('Failed to reorder checklist items:', errors)
+    if (errors.length) log.error('reorder_checklist_items_failed', errors)
   },
 
   updateRepeat: async (id, repeat) => {
@@ -1165,7 +1264,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
     const { error } = await supabase.from('tasks').update({ repeat_interval: repeat }).eq('id', id)
     if (error) {
-      console.error('Failed to update repeat:', error)
+      log.error('update_repeat_failed', error, { taskId: id, repeat })
     }
   },
 
@@ -1185,7 +1284,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     }).eq('id', taskId)
 
     if (error) {
-      console.error('Failed to assign task:', error)
+      log.error('assign_task_failed', error, { taskId, friendUserId })
       set(state => ({
         tasks: state.tasks.map(t =>
           t.id === taskId ? { ...t, assignedTo: null, assignedBy: null } : t
@@ -1207,7 +1306,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     }).eq('id', taskId)
 
     if (error) {
-      console.error('Failed to unassign task:', error)
+      log.error('unassign_task_failed', error, { taskId })
     }
   },
 
@@ -1255,7 +1354,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       })
 
       if (error) {
-        console.error('Failed to share project:', error)
+        log.error('share_project_failed', error, { projectId, email: normalizedEmail })
         set(s => ({ projectShares: s.projectShares.filter(s => s.id !== id) }))
       }
     } else {
@@ -1282,7 +1381,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       })
 
       if (error) {
-        console.error('Failed to create invite:', error)
+        log.error('create_invite_failed', error, { projectId, email: normalizedEmail })
         set(s => ({ projectShares: s.projectShares.filter(s => s.id !== id) }))
         return
       }
@@ -1299,7 +1398,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
           },
         })
       } catch (e) {
-        console.error('Failed to send invite email:', e)
+        log.error('send_invite_email_failed', e, { projectId, email: normalizedEmail })
       }
     }
   },
@@ -1318,7 +1417,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     const { error } = await supabase.from('project_shares').delete().eq('id', shareId)
 
     if (error) {
-      console.error('Failed to remove share:', error)
+      log.error('remove_share_failed', error, { shareId })
       set(s => ({
         projectShares: [...s.projectShares, prev],
         sharedProjectIds: prev.status === 'active'
@@ -1406,5 +1505,65 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     if (data) {
       set({ profiles: data.map(profileFromRow) })
     }
+  },
+
+  loadAgentQuestions: async () => {
+    const userId = get().userId
+    if (!userId) return
+    const { data } = await supabase
+      .from('agent_questions')
+      .select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+    if (data) {
+      const questions: AgentQuestion[] = data.map((r: Record<string, unknown>) => ({
+        id: r.id as string,
+        projectId: r.project_id as string,
+        conversationId: r.conversation_id as string,
+        question: r.question as string,
+        context: (r.context as string) ?? '',
+        options: (r.options as { label: string; description?: string; value: string }[]) ?? [],
+        agentRecommendation: r.agent_recommendation as string | undefined,
+        status: (r.status as AgentQuestion['status']) ?? 'pending',
+        response: r.response as string | undefined,
+        createdAt: r.created_at as string,
+        resolvedAt: r.resolved_at as string | undefined,
+      }))
+      set({ agentQuestions: questions })
+    }
+  },
+
+  respondToQuestion: async (questionId, response) => {
+    const prev = get().agentQuestions.find(q => q.id === questionId)
+    if (!prev) return
+
+    set(s => ({
+      agentQuestions: s.agentQuestions.map(q =>
+        q.id === questionId ? { ...q, status: 'resolved', response, resolvedAt: new Date().toISOString() } : q
+      ),
+    }))
+
+    const { error } = await supabase
+      .from('agent_questions')
+      .update({ status: 'resolved', response, resolved_at: new Date().toISOString() })
+      .eq('id', questionId)
+    if (error) {
+      log.error('respond_to_question_failed', error, { questionId })
+      set(s => ({
+        agentQuestions: s.agentQuestions.map(q => (q.id === questionId ? prev : q)),
+      }))
+    }
+  },
+
+  addAgentQuestion: (question) => {
+    set(s => ({ agentQuestions: [question, ...s.agentQuestions] }))
+  },
+
+  toggleRightPanel: () => {
+    set(s => ({ rightPanelOpen: !s.rightPanelOpen }))
+  },
+
+  setRightPanelOpen: (open) => {
+    set({ rightPanelOpen: open })
   },
 }))

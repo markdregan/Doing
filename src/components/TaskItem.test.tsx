@@ -70,6 +70,7 @@ function createTask(overrides: Partial<Task> = {}): Task {
     title: 'Test task',
     notes: '',
     projectId: null,
+    status: 'not_started',
     dueDate: null,
     isToday: false,
     isSomeday: false,

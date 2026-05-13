@@ -22,7 +22,7 @@ function SectionLabel({ text }: { text: string }) {
 }
 
 function Divider() {
-  return <div className="h-px bg-gray-100 dark:bg-[#2C2C2E] my-4" />;
+  return <div className="h-px bg-gray-100 dark:bg-[#38383A] my-4" />;
 }
 
 export default function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
@@ -109,7 +109,7 @@ export default function SettingsDialog({ open, onOpenChange }: SettingsDialogPro
               <SectionLabel text="About" />
               <div className="space-y-1">
                 <p className="text-sm text-gray-900 dark:text-[#F5F5F5]">
-                  Things Task App
+                  Doing Task App
                 </p>
                 <p className="text-xs text-gray-400 dark:text-[#636366]">
                   Version 0.0.0

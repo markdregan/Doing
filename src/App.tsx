@@ -2,12 +2,18 @@ import { useEffect, useState, useMemo } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { DndContext, DragOverlay, closestCenter, MouseSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, type DragStartEvent, type DragEndEvent } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
-import { format } from 'date-fns'
 import { useAuthStore } from './store/useAuthStore'
 import { useTaskStore } from './store/useTaskStore'
+import { useAIStudioStore } from './store/useAIStudioStore'
+import { logger } from './lib/logger'
+import ErrorBoundary from './components/ErrorBoundary'
+
+const log = logger.child({ module: 'App' })
 import Sidebar from './components/Sidebar'
 import TopBar from './components/TopBar'
 import MobileDrawer from './components/MobileDrawer'
+import HomeView from './components/HomeView'
+import AwaitingInputView from './components/AwaitingInputView'
 import TaskList from './components/TaskList'
 import QuickEntry from './components/QuickEntry'
 import SearchDialog from './components/SearchDialog'
@@ -45,75 +51,50 @@ function DragOverlayContent({ id }: { id: string }) {
 
 function getVisibleTaskIds() {
   const state = useTaskStore.getState()
-  const todayStr = new Date().toISOString().slice(0, 10)
-  const { tasks, activeView, activeProjectId, userId } = state
-
-  let filtered = [...tasks]
+  const { tasks, activeView, activeProjectId } = state
 
   if (activeView === 'trash') {
-    filtered = filtered.filter(t => t.deletedAt !== null)
-    filtered.sort((a, b) => {
-      const aTime = a.deletedAt ? new Date(a.deletedAt).getTime() : 0
-      const bTime = b.deletedAt ? new Date(b.deletedAt).getTime() : 0
-      return bTime - aTime
-    })
-    return filtered.map(t => t.id)
+    return tasks
+      .filter(t => t.deletedAt !== null)
+      .sort((a, b) => {
+        const aTime = a.deletedAt ? new Date(a.deletedAt).getTime() : 0
+        const bTime = b.deletedAt ? new Date(b.deletedAt).getTime() : 0
+        return bTime - aTime
+      })
+      .map(t => t.id)
   }
-
-  filtered = filtered.filter(t => !t.deletedAt)
 
   if (activeView === 'logbook') {
-    filtered = filtered.filter(t => t.completed && t.completedAt !== null)
-    filtered.sort((a, b) => {
-      const aTime = a.completedAt ? new Date(a.completedAt).getTime() : 0
-      const bTime = b.completedAt ? new Date(b.completedAt).getTime() : 0
-      return bTime - aTime
-    })
-  } else if (activeView === 'inbox') {
-    filtered = filtered.filter(t => !t.completed && !t.isSomeday && t.projectId === null).sort((a, b) => a.sortOrder - b.sortOrder)
-  } else if (activeView === 'today') {
-    filtered = filtered.filter(t => !t.completed && !t.isSomeday && (t.isToday || t.dueDate === todayStr))
-    filtered.sort((a, b) => {
-      const aOverdue = a.dueDate && a.dueDate < todayStr ? 1 : 0
-      const bOverdue = b.dueDate && b.dueDate < todayStr ? 1 : 0
-      if (aOverdue !== bOverdue) return bOverdue - aOverdue
-      if (a.isToday !== b.isToday) return a.isToday ? -1 : 1
-      return a.sortOrder - b.sortOrder
-    })
-  } else if (activeView === 'someday') {
-    filtered = filtered.filter(t => !t.completed && t.isSomeday).sort((a, b) => a.sortOrder - b.sortOrder)
-  } else if (activeView === 'all') {
-    filtered = filtered.filter(t => !t.completed && !t.isSomeday).sort((a, b) => a.sortOrder - b.sortOrder)
-  } else if (activeView === 'project' && activeProjectId) {
-    filtered = filtered.filter(t => !t.completed && !t.isSomeday && t.projectId === activeProjectId).sort((a, b) => a.sortOrder - b.sortOrder)
-  } else if (activeView === 'assigned') {
-    filtered = filtered.filter(t => !t.completed && !t.isSomeday && t.assignedTo === userId).sort((a, b) => a.sortOrder - b.sortOrder)
-  } else {
-    filtered = []
+    return tasks
+      .filter(t => t.completed && t.completedAt !== null && !t.deletedAt)
+      .sort((a, b) => {
+        const aTime = a.completedAt ? new Date(a.completedAt).getTime() : 0
+        const bTime = b.completedAt ? new Date(b.completedAt).getTime() : 0
+        return bTime - aTime
+      })
+      .map(t => t.id)
   }
 
-  return filtered.map(t => t.id)
+  if (activeView === 'project' && activeProjectId) {
+    return tasks
+      .filter(t => !t.deletedAt && !t.completed && !t.isSomeday && t.projectId === activeProjectId)
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map(t => t.id)
+  }
+
+  return []
 }
 
-function getViewTitle(activeView: string, activeProjectId: string | null, projects: import('./types').Project[], tasks: import('./types').Task[]) {
-  if (activeView === 'inbox') return { title: 'Inbox' }
-  if (activeView === 'today') return { title: 'Today', subtitle: format(new Date(), 'EEEE, MMMM d') }
-  if (activeView === 'someday') return { title: 'Someday' }
-  if (activeView === 'assigned') return { title: 'Assigned to Me' }
+function getViewTitle(activeView: string, activeProjectId: string | null, projects: import('./types').Project[]): { title: string; subtitle?: string } {
+  if (activeView === 'home') return { title: 'Home' }
+  if (activeView === 'awaiting-input') return { title: 'Awaiting Input' }
   if (activeView === 'trash') return { title: 'Trash' }
   if (activeView === 'logbook') return { title: 'Logbook' }
-  if (activeView === 'all') return { title: 'All' }
   if (activeView === 'project' && activeProjectId) {
     const project = projects.find(p => p.id === activeProjectId)
-    const projectTasksAll = tasks.filter(t => !t.deletedAt && t.projectId === activeProjectId && !t.isSomeday)
-    const pCompleted = projectTasksAll.filter(t => t.completed).length
-    const pTotal = projectTasksAll.length
-    return {
-      title: project?.title ?? 'Project',
-      subtitle: pTotal > 0 ? `${pCompleted} of ${pTotal} completed` : '',
-    }
+    return { title: project?.title ?? 'Project' }
   }
-  return { title: 'Things' }
+  return { title: 'Doing' }
 }
 
 function AppShell() {
@@ -128,7 +109,6 @@ function AppShell() {
   const projects = useTaskStore(s => s.projects)
   const activeView = useTaskStore(s => s.activeView)
   const activeProjectId = useTaskStore(s => s.activeProjectId)
-  const tasks = useTaskStore(s => s.tasks)
   const trashUndo = useTaskStore(s => s.trashUndo)
   const restoreTask = useTaskStore(s => s.restoreTask)
   const clearTrashUndo = useTaskStore(s => s.clearTrashUndo)
@@ -139,7 +119,7 @@ function AppShell() {
     useSensor(KeyboardSensor, {}),
   )
 
-  const viewTitle = useMemo(() => getViewTitle(activeView, activeProjectId, projects, tasks), [activeView, activeProjectId, projects, tasks])
+  const viewTitle = useMemo(() => getViewTitle(activeView, activeProjectId, projects), [activeView, activeProjectId, projects])
 
   useEffect(() => {
     if (drawerOpen) setDrawerOpen(false)
@@ -159,19 +139,32 @@ function AppShell() {
         e.preventDefault()
         setSettingsOpen(true)
       }
+      if ((e.metaKey || e.ctrlKey) && e.key === '1') {
+        e.preventDefault()
+        useTaskStore.getState().setActiveView('home')
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === '2') {
+        e.preventDefault()
+        useTaskStore.getState().setActiveView('awaiting-input')
+      }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [])
 
   function handleDragStart(event: DragStartEvent) {
-    setActiveDragId(String(event.active.id))
+    const id = String(event.active.id)
+    log.info('drag_start', { id, type: event.active.data.current?.type })
+    setActiveDragId(id)
   }
 
   function handleDragEnd(event: DragEndEvent) {
     setActiveDragId(null)
     const { active, over } = event
-    if (!over) return
+    if (!over) {
+      log.info('drag_end_no_target', { activeId: String(active.id) })
+      return
+    }
 
     const activeType = active.data.current?.type as string | undefined
     const overType = over.data.current?.type as string | undefined
@@ -215,6 +208,14 @@ function AppShell() {
     }
   }
 
+  function renderMainContent() {
+    if (activeView === 'home') return <HomeView />
+    if (activeView === 'project') return <HomeView />
+    if (activeView === 'awaiting-input') return <AwaitingInputView />
+    if (activeView === 'logbook' || activeView === 'trash') return <TaskList />
+    return <HomeView />
+  }
+
   return (
     <DndContext
       sensors={sensors}
@@ -230,7 +231,7 @@ function AppShell() {
           onSearchClick={() => setSearchOpen(true)}
         />
         <Sidebar onSearchOpen={() => setSearchOpen(true)} onSettingsOpen={() => setSettingsOpen(true)} />
-        <TaskList />
+        {renderMainContent()}
       </div>
 
       <button
@@ -268,18 +269,20 @@ export default function App() {
   const initialize = useAuthStore(s => s.initialize)
   const initialized = useAuthStore(s => s.initialized)
   const clearTasks = useTaskStore(s => s.clearAll)
+  const clearAIStudio = useAIStudioStore(s => s.clearAll)
   useEffect(() => {
     if (!initialized) initialize()
   }, [initialized, initialize])
 
-  useEffect(() => {
-    const unsubscribe = useAuthStore.subscribe((state, prev) => {
-      if (prev.user && !state.user) {
-        clearTasks()
-      }
-    })
-    return unsubscribe
-  }, [clearTasks])
+    useEffect(() => {
+      const unsubscribe = useAuthStore.subscribe((state, prev) => {
+        if (prev.user && !state.user) {
+          clearTasks()
+          clearAIStudio()
+        }
+      })
+      return unsubscribe
+    }, [clearTasks, clearAIStudio])
 
   return (
     <Routes>
@@ -289,7 +292,9 @@ export default function App() {
         path="/"
         element={
           <ProtectedRoute>
-            <AppShell />
+            <ErrorBoundary>
+              <AppShell />
+            </ErrorBoundary>
           </ProtectedRoute>
         }
       />

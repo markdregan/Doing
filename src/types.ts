@@ -1,20 +1,17 @@
-export const PROJECT_COLORS = [
-  'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'gray'
-] as const;
+export type ProjectColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | 'pink' | 'gray';
 
-export type ProjectColor = typeof PROJECT_COLORS[number];
+export type TagColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | 'pink' | 'gray' | 'teal' | 'brown';
 
-export const TAG_COLORS = [
-  'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'gray', 'teal', 'brown'
-] as const;
+export const TASK_STATUSES = ['not_started', 'in_progress', 'waiting', 'completed'] as const;
 
-export type TagColor = typeof TAG_COLORS[number];
+export type TaskStatus = typeof TASK_STATUSES[number];
 
 export interface Task {
   id: string;
   title: string;
   notes: string;
   projectId: string | null;
+  status: TaskStatus;
   dueDate: string | null;
   isToday: boolean;
   isSomeday: boolean;
@@ -36,6 +33,13 @@ export interface Project {
   sortOrder: number;
   createdAt: string;
   userId: string;
+  aiGenerationMetadata: AiGenerationMetadata | null;
+}
+
+export interface AiGenerationMetadata {
+  conversationId: string;
+  goal: string;
+  qaSummary: string;
 }
 
 export interface Profile {
@@ -80,4 +84,79 @@ export interface ChecklistItem {
   createdAt: string;
 }
 
-export type ViewType = 'inbox' | 'today' | 'someday' | 'all' | 'project' | 'assigned' | 'trash' | 'logbook';
+export interface AgentConversation {
+  id: string;
+  userId: string;
+  title: string;
+  emoji: string;
+  status: 'draft' | 'planning' | 'review' | 'active' | 'archived';
+  goalText: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentMessage {
+  id: string;
+  conversationId: string;
+  role: 'user' | 'agent' | 'system';
+  content: string;
+  metadata: {
+    needsResponse?: boolean;
+    responseType?: 'choice' | 'approval' | 'info';
+    options?: { label: string; description?: string; value: string }[];
+    agentRecommendation?: string;
+    [key: string]: unknown;
+  };
+  createdAt: string;
+}
+
+export interface PlanDraftTask {
+  title: string;
+  notes?: string;
+  dueDate?: string;
+  tags?: string[];
+}
+
+export interface PlanDraft {
+  projectTitle: string;
+  projectColor: ProjectColor;
+  tasks: PlanDraftTask[];
+  version: number;
+}
+
+export interface GoalBriefQuestion {
+  id: string;
+  field: string;
+  type: 'text' | 'select' | 'multiselect';
+  label: string;
+  placeholder?: string;
+  options?: string[];
+}
+
+export type ViewType = 'home' | 'awaiting-input' | 'project' | 'logbook' | 'trash';
+
+export interface AgentQuestion {
+  id: string;
+  projectId: string;
+  conversationId: string;
+  question: string;
+  context: string;
+  options: { label: string; description?: string; value: string }[];
+  agentRecommendation?: string;
+  status: 'pending' | 'resolved';
+  response?: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+export type ActivityEventType = 'agent_action' | 'agent_question' | 'user_response' | 'task_completed' | 'task_added' | 'plan_approved';
+
+export interface AgentActivityEvent {
+  id: string;
+  projectId: string;
+  type: ActivityEventType;
+  summary: string;
+  details?: string;
+  timestamp: string;
+  metadata?: Record<string, unknown>;
+}
