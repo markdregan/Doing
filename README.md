@@ -1,4 +1,4 @@
-# Things
+# Doing
 
 A task management app inspired by Things 3, built with React + TypeScript + Vite.
 
@@ -24,8 +24,8 @@ A task management app inspired by Things 3, built with React + TypeScript + Vite
 ## Setup
 
 ```bash
-git clone https://github.com/markdregan/Things
-cd Things
+git clone https://github.com/markdregan/Doing
+cd Doing
 npm install
 ```
 

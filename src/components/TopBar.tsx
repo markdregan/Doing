@@ -9,7 +9,7 @@ interface TopBarProps {
 
 export default function TopBar({ title, subtitle, onMenuClick, onSearchClick }: TopBarProps) {
   return (
-    <div className="md:hidden flex items-center h-[52px] px-4 border-b border-gray-100 dark:border-[#2C2C2E] bg-white dark:bg-[#151516] flex-shrink-0">
+    <div className="md:hidden flex items-center h-[52px] px-4 border-b border-gray-100 dark:border-[#38383A] bg-white dark:bg-[#151516] flex-shrink-0">
       <button
         onClick={onMenuClick}
         className="p-1 -ml-1 text-gray-400 dark:text-[#636366] hover:text-gray-600 dark:hover:text-[#98989D] transition-colors"

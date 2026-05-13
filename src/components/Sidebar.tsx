@@ -1,21 +1,76 @@
-import { useState } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useTaskStore } from '../store/useTaskStore';
+import { useAIStudioStore } from '../store/useAIStudioStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { useThemeStore } from '../store/useThemeStore';
-import { PROJECT_COLOR_MAP, TAG_COLOR_MAP } from '../lib/constants';
-import type { Project } from '../types';
+import { PROJECT_COLOR_MAP } from '../lib/constants';
+import { logger } from '../lib/logger';
+
+const log = logger.child({ module: 'Sidebar' });
+import type { Project, AgentConversation } from '../types';
 import {
-  InboxIcon,
-  TodayIcon,
-  AnytimeIcon,
-  SomedayIcon,
   LogbookIcon,
   TrashIcon,
   SearchIcon
 } from '../lib/icons';
 import ProgressRing from './ProgressRing';
+import ResizeHandle from './ResizeHandle';
+
+function HomeIcon({ size = 16, className = '' }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M2.5 6.5L8 2l5.5 4.5V13a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1V6.5z" />
+      <path d="M6 14V8h4v6" />
+    </svg>
+  );
+}
+
+function BellIcon({ size = 16, className = '' }: { size?: number; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M8 1.5a5 5 0 0 0-5 5v2c0 .7-.3 1.4-.8 1.9l-.4.4a1 1 0 0 0 .7 1.7h11a1 1 0 0 0 .7-1.7l-.4-.4a2.5 2.5 0 0 1-.8-1.9v-2a5 5 0 0 0-5-5z" />
+      <path d="M6 12.5a2 2 0 0 0 4 0" />
+    </svg>
+  );
+}
+
+type MergedItem =
+  | { type: 'conversation'; item: AgentConversation }
+  | { type: 'project'; item: Project }
+
+const CONV_PROGRESS: Record<string, number> = {
+  draft: 0,
+  planning: 33,
+  review: 66,
+}
+
+function ConversationItem({ conv, isActive }: { conv: AgentConversation; isActive: boolean }) {
+  const setActiveConversation = useAIStudioStore(s => s.setActiveConversation);
+  const setActiveView = useTaskStore(s => s.setActiveView);
+
+  return (
+    <button
+      onClick={() => {
+        setActiveConversation(conv.id);
+        setActiveView('home');
+      }}
+      className={`w-full flex items-center gap-2.5 px-3 py-1 text-sm rounded-lg transition-colors ${
+        isActive
+          ? 'bg-gray-100 dark:bg-[#2C2C2E] text-gray-900 dark:text-[#F5F5F5] font-medium'
+          : 'text-gray-500 dark:text-[#98989D] hover:text-gray-800 dark:hover:text-[#F5F5F5] hover:bg-gray-50 dark:hover:bg-[#252526]'
+      }`}
+    >
+      <ProgressRing
+        percentage={CONV_PROGRESS[conv.status] ?? 0}
+        size={14}
+        color="#818CF8"
+      />
+      <span className="truncate">{conv.title || conv.goalText.slice(0, 40)}</span>
+    </button>
+  );
+}
 
 function ProjectItem({ project, isActive }: { project: Project; isActive: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -48,7 +103,10 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
   return (
     <div ref={setNodeRef} style={style} className="flex items-center" {...attributes} {...listeners}>
       <button
-        onClick={() => setActiveView('project', project.id)}
+        onClick={() => {
+          log.info('project_clicked', { projectId: project.id, projectTitle: project.title, isOwner: project.userId === useTaskStore.getState().userId })
+          setActiveView('project', project.id)
+        }}
         className={`flex-1 flex items-center gap-2.5 px-3 py-1 text-sm rounded-lg transition-colors ${
           isActive
             ? 'bg-gray-100 dark:bg-[#2C2C2E] text-gray-900 dark:text-[#F5F5F5] font-medium'
@@ -93,32 +151,39 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
 export function SidebarContent({ onSearchOpen, onSettingsOpen }: { onSearchOpen?: () => void; onSettingsOpen?: () => void }) {
   const tasks = useTaskStore(s => s.tasks);
   const projects = useTaskStore(s => s.projects);
-  const tags = useTaskStore(s => s.tags);
+  const agentQuestions = useTaskStore(s => s.agentQuestions);
   const activeView = useTaskStore(s => s.activeView);
   const activeProjectId = useTaskStore(s => s.activeProjectId);
-  const activeTagId = useTaskStore(s => s.activeTagId);
   const setActiveView = useTaskStore(s => s.setActiveView);
   const addProject = useTaskStore(s => s.addProject);
-  const setActiveTagId = useTaskStore(s => s.setActiveTagId);
   const signOut = useAuthStore(s => s.signOut);
   const userId = useTaskStore(s => s.userId);
   const { resolvedTheme, toggle: toggleTheme } = useThemeStore();
 
+  const conversations = useAIStudioStore(s => s.conversations);
+  const activeConversationId = useAIStudioStore(s => s.activeConversationId);
+
   const [adding, setAdding] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState('');
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const inboxCount = tasks.filter(
-    t => !t.completed && !t.isSomeday && !t.deletedAt && t.projectId === null
-  ).length;
-  const todayCount = tasks.filter(
-    t => !t.completed && !t.isSomeday && !t.deletedAt && (t.isToday || t.dueDate === todayStr)
-  ).length;
   const trashCount = tasks.filter(t => t.deletedAt !== null).length;
-  const assignedCount = tasks.filter(
-    t => !t.completed && !t.deletedAt && t.assignedTo === userId
-  ).length;
   const sharedProjects = projects.filter(p => p.userId !== userId);
+  const pendingCount = agentQuestions.filter(q => q.status === 'pending').length;
+
+  // Merge planning conversations and user projects into one sorted list
+  const mergedItems: MergedItem[] = useMemo(() => {
+    const planningConvs = conversations
+      .filter(c => c.status !== 'active' && c.status !== 'archived')
+      .map(c => ({ type: 'conversation' as const, item: c, updatedAt: c.updatedAt }));
+
+    const userProjects = projects
+      .filter(p => p.userId === userId)
+      .map(p => ({ type: 'project' as const, item: p, updatedAt: p.createdAt }));
+
+    const items = [...planningConvs, ...userProjects];
+    items.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    return items;
+  }, [conversations, projects, userId]);
 
   const handleAddProject = () => {
     if (newProjectTitle.trim()) {
@@ -131,7 +196,7 @@ export function SidebarContent({ onSearchOpen, onSettingsOpen }: { onSearchOpen?
   return (
     <>
       <div className="p-5 pb-3 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-gray-900 dark:text-[#F5F5F5]">Things</h1>
+        <h1 className="text-lg font-bold text-gray-900 dark:text-[#F5F5F5]">Doing</h1>
         <button
           onClick={onSearchOpen}
           className="text-gray-300 dark:text-[#48484A] hover:text-gray-500 dark:hover:text-[#98989D] transition-colors"
@@ -143,78 +208,26 @@ export function SidebarContent({ onSearchOpen, onSettingsOpen }: { onSearchOpen?
 
       <nav className="px-3 space-y-0.5">
         <SidebarButton
-          active={activeView === 'inbox'}
-          onClick={() => setActiveView('inbox')}
+          active={activeView === 'home' && !activeConversationId && !activeProjectId}
+          onClick={() => setActiveView('home')}
         >
-          <InboxIcon size={16} className="text-blue-500" />
-          <span>Inbox</span>
-          {inboxCount > 0 && (
-            <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{inboxCount}</span>
+          <HomeIcon size={16} className="text-blue-500" />
+          <span>Home</span>
+        </SidebarButton>
+
+        <SidebarButton
+          active={activeView === 'awaiting-input'}
+          onClick={() => setActiveView('awaiting-input')}
+        >
+          <BellIcon size={16} className="text-amber-400" />
+          <span>Awaiting Input</span>
+          {pendingCount > 0 && (
+            <span className="ml-auto w-5 h-5 rounded-full bg-amber-400 text-white text-[10px] font-bold flex items-center justify-center">
+              {pendingCount}
+            </span>
           )}
         </SidebarButton>
 
-        <SidebarButton
-          active={activeView === 'today'}
-          onClick={() => setActiveView('today')}
-        >
-          <TodayIcon size={16} className="text-orange-400" />
-          <span>Today</span>
-          {todayCount > 0 && (
-            <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{todayCount}</span>
-          )}
-        </SidebarButton>
-
-        <SidebarButton
-          active={activeView === 'all'}
-          onClick={() => setActiveView('all')}
-        >
-          <AnytimeIcon size={16} className="text-teal-500" />
-          <span>Anytime</span>
-        </SidebarButton>
-
-        <SidebarButton
-          active={activeView === 'someday'}
-          onClick={() => setActiveView('someday')}
-        >
-          <SomedayIcon size={16} className="text-indigo-400" />
-          <span>Someday</span>
-        </SidebarButton>
-
-        <SidebarButton
-          active={activeView === 'assigned'}
-          onClick={() => setActiveView('assigned')}
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-orange-300">
-            <circle cx="8" cy="5" r="2.5" />
-            <path d="M3 14c0-2.5 2.5-4 5-4s5 1.5 5 4" />
-            <path d="M11.5 5l2.5 2.5 3-3" strokeWidth="1" />
-          </svg>
-          <span>Assigned</span>
-          {assignedCount > 0 && (
-            <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{assignedCount}</span>
-          )}
-        </SidebarButton>
-
-        <div className="pt-4">
-          <SidebarButton
-            active={activeView === 'logbook'}
-            onClick={() => setActiveView('logbook')}
-          >
-            <LogbookIcon size={16} className="text-green-500" />
-            <span>Logbook</span>
-          </SidebarButton>
-
-          <SidebarButton
-            active={activeView === 'trash'}
-            onClick={() => setActiveView('trash')}
-          >
-            <TrashIcon size={16} className="text-gray-400" />
-            <span>Trash</span>
-            {trashCount > 0 && (
-              <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{trashCount}</span>
-            )}
-          </SidebarButton>
-        </div>
       </nav>
 
       <div className="mt-6 px-5 mb-2 flex items-center justify-between">
@@ -231,13 +244,24 @@ export function SidebarContent({ onSearchOpen, onSettingsOpen }: { onSearchOpen?
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 space-y-0.5">
-        {projects.map(project => (
-          <ProjectItem
-            key={project.id}
-            project={project}
-            isActive={activeView === 'project' && activeProjectId === project.id}
-          />
-        ))}
+        {mergedItems.map(entry => {
+          if (entry.type === 'conversation') {
+            return (
+              <ConversationItem
+                key={`conv-${entry.item.id}`}
+                conv={entry.item}
+                isActive={activeConversationId === entry.item.id}
+              />
+            );
+          }
+          return (
+            <ProjectItem
+              key={`proj-${entry.item.id}`}
+              project={entry.item}
+              isActive={activeView === 'project' && activeProjectId === entry.item.id}
+            />
+          );
+        })}
       </nav>
 
       {adding && (
@@ -269,7 +293,10 @@ export function SidebarContent({ onSearchOpen, onSettingsOpen }: { onSearchOpen?
             {sharedProjects.map(project => (
               <button
                 key={project.id}
-                onClick={() => setActiveView('project', project.id)}
+                onClick={() => {
+                  log.info('shared_project_clicked', { projectId: project.id, projectTitle: project.title })
+                  setActiveView('project', project.id)
+                }}
                 className={`w-full flex items-center gap-2.5 px-3 py-1 text-sm rounded-lg transition-colors ${
                   activeView === 'project' && activeProjectId === project.id
                     ? 'bg-gray-100 dark:bg-[#2C2C2E] text-gray-900 dark:text-[#F5F5F5] font-medium'
@@ -284,37 +311,28 @@ export function SidebarContent({ onSearchOpen, onSettingsOpen }: { onSearchOpen?
         </>
       )}
 
-      {tags.length > 0 && (
-        <>
-          <div className="mt-4 px-5 mb-2">
-            <span className="text-[11px] font-semibold text-gray-400 dark:text-[#636366] uppercase tracking-[0.08em]">Tags</span>
-          </div>
-          <nav className="max-h-[200px] overflow-y-auto px-3 space-y-0.5">
-            {tags.map(tag => {
-              const tagTaskCount = tasks.filter(t => !t.deletedAt && t.tagIds.includes(tag.id)).length;
-              return (
-                <button
-                  key={tag.id}
-                  onClick={() => setActiveTagId(activeTagId === tag.id ? null : tag.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-1 text-sm rounded-lg transition-colors ${
-                    activeTagId === tag.id
-                      ? 'bg-gray-100 dark:bg-[#2C2C2E] text-gray-900 dark:text-[#F5F5F5] font-medium'
-                      : 'text-gray-500 dark:text-[#98989D] hover:text-gray-800 dark:hover:text-[#F5F5F5] hover:bg-gray-50 dark:hover:bg-[#252526]'
-                  }`}
-                >
-                  <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: TAG_COLOR_MAP[tag.color] }} />
-                  <span className="truncate">{tag.title}</span>
-                  {tagTaskCount > 0 && (
-                    <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{tagTaskCount}</span>
-                  )}
-                </button>
-              );
-            })}
-          </nav>
-        </>
-      )}
+      <div className="px-3 pt-4 space-y-0.5">
+        <SidebarButton
+          active={activeView === 'logbook'}
+          onClick={() => setActiveView('logbook')}
+        >
+          <LogbookIcon size={16} className="text-green-500" />
+          <span>Logbook</span>
+        </SidebarButton>
 
-      <div className="px-3 pb-3 mt-3 space-y-1 border-t border-gray-100 dark:border-[#2C2C2E] pt-3">
+        <SidebarButton
+          active={activeView === 'trash'}
+          onClick={() => setActiveView('trash')}
+        >
+          <TrashIcon size={16} className="text-gray-400" />
+          <span>Trash</span>
+          {trashCount > 0 && (
+            <span className="text-xs text-gray-400 dark:text-[#636366] font-medium ml-auto">{trashCount}</span>
+          )}
+        </SidebarButton>
+      </div>
+
+      <div className="px-3 pb-3 mt-3 space-y-1 border-t border-gray-100 dark:border-[#38383A] pt-3">
         <button
           onClick={toggleTheme}
           className="w-full flex items-center gap-2 px-3 py-1 text-xs text-gray-300 dark:text-[#636366] hover:text-gray-500 dark:hover:text-[#98989D] transition-colors"
@@ -357,9 +375,17 @@ export function SidebarContent({ onSearchOpen, onSettingsOpen }: { onSearchOpen?
 }
 
 export default function Sidebar({ onSearchOpen, onSettingsOpen }: { onSearchOpen?: () => void; onSettingsOpen?: () => void }) {
+  const sidebarRef = useRef<HTMLElement | null>(null)
+
   return (
-    <aside className="hidden md:flex w-[240px] h-screen border-r border-gray-100 dark:border-[#2C2C2E] flex-col bg-white dark:bg-[#151516] flex-shrink-0">
-      <SidebarContent onSearchOpen={onSearchOpen} onSettingsOpen={onSettingsOpen} />
+    <aside
+      ref={sidebarRef}
+      className="hidden md:flex h-screen border-r border-gray-100 dark:border-[#38383A] bg-white dark:bg-[#151516] flex-shrink-0"
+    >
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <SidebarContent onSearchOpen={onSearchOpen} onSettingsOpen={onSettingsOpen} />
+      </div>
+      <ResizeHandle containerRef={sidebarRef} position="right" minWidth={180} maxWidth={400} storageKey="sidebarWidth" defaultWidth={240} />
     </aside>
   );
 }

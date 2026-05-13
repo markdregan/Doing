@@ -58,7 +58,7 @@ export default function AssigneePicker({ taskId, currentAssigneeId, onClose }: A
   };
 
   return (
-    <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-[#2C2C2E] rounded-lg shadow-xl border border-gray-100 dark:border-[#38383A] py-1 z-50 max-h-64 overflow-y-auto animate-fade-in">
+    <div className="w-full py-1 max-h-64 overflow-y-auto">
       {currentAssignee && (
         <>
           <div className="px-3 py-1.5 text-xs text-gray-400 dark:text-[#636366]">
@@ -83,7 +83,7 @@ export default function AssigneePicker({ taskId, currentAssigneeId, onClose }: A
             value={email}
             onChange={e => setEmail(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleSearch(); }}
-            className="flex-1 px-2 py-1 text-xs border border-gray-200 dark:border-[#38383A] rounded-md outline-none focus:border-gray-300 dark:focus:border-[#48484A] bg-transparent text-gray-900 dark:text-[#F5F5F5] placeholder:text-gray-400 dark:placeholder:text-[#636366]"
+            className="flex-1 px-2 py-1 text-xs border border-gray-200 dark:border-[#38383A] rounded-lg outline-none focus:border-gray-300 dark:focus:border-[#48484A] bg-transparent text-gray-900 dark:text-[#F5F5F5] placeholder:text-gray-400 dark:placeholder:text-[#636366]"
           />
           <button
             onClick={handleSearch}

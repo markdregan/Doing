@@ -1,4 +1,4 @@
-import React from 'react';
+import type React from 'react';
 
 interface IconProps extends React.SVGProps<SVGSVGElement> {
   size?: number;
@@ -67,3 +67,5 @@ export const SearchIcon = ({ size = 16, ...props }: IconProps) => (
     <path d="M10.5 10.5L14 14" />
   </svg>
 );
+
+

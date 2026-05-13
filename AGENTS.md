@@ -1,4 +1,4 @@
-# Things Task App — Agent Guide
+# Doing Task App — Agent Guide
 
 ## Stack (verified from config)
 Vite 8 + React 19 + TypeScript 6 + Tailwind v4 + Zustand 5 + Supabase + @dnd-kit + react-router-dom 7

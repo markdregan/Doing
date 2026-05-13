@@ -1,7 +1,5 @@
 import type { ProjectColor, TagColor } from '../types';
 
-export const APP_NAME = 'Things';
-
 export const PROJECT_COLOR_MAP: Record<ProjectColor, string> = {
   red: '#FF3B30',
   orange: '#FF9500',

@@ -12,6 +12,24 @@ interface TaskOverflowProps {
 
 type SubMenu = 'main' | 'repeat' | 'tags' | 'project' | 'assign';
 
+function BackButton({ label, onBack }: { label: string; onBack: () => void }) {
+  return (
+    <button
+      onClick={onBack}
+      className="w-full flex items-center gap-1.5 px-3 py-1.5 text-xs text-left text-gray-500 dark:text-[#98989D] hover:bg-gray-50 dark:hover:bg-[#252526] transition-colors"
+    >
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6.5 2l-3 3 3 3" />
+      </svg>
+      {label}
+    </button>
+  );
+}
+
+function Divider() {
+  return <div className="border-t border-gray-100 dark:border-[#38383A]" />;
+}
+
 export default function TaskOverflow({ task, align = 'right' }: TaskOverflowProps) {
   const [open, setOpen] = useState(false);
   const [subMenu, setSubMenu] = useState<SubMenu>('main');
@@ -33,6 +51,13 @@ export default function TaskOverflow({ task, align = 'right' }: TaskOverflowProp
   const tags = useTaskStore(s => s.tags);
   const projects = useTaskStore(s => s.projects);
 
+  const closeMenu = () => {
+    setOpen(false);
+    setSubMenu('main');
+    setDeleteConfirm(false);
+    setNewTagName('');
+  };
+
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -43,13 +68,6 @@ export default function TaskOverflow({ task, align = 'right' }: TaskOverflowProp
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
-
-  const closeMenu = () => {
-    setOpen(false);
-    setSubMenu('main');
-    setDeleteConfirm(false);
-    setNewTagName('');
-  };
 
   const currentProject = projects.find(p => p.id === task.projectId);
 
@@ -62,21 +80,10 @@ export default function TaskOverflow({ task, align = 'right' }: TaskOverflowProp
     }
   };
 
-  const BackButton = ({ label }: { label: string }) => (
-    <button
-      onClick={() => { setSubMenu('main'); setNewTagName(''); }}
-      className="w-full flex items-center gap-1.5 px-3 py-1.5 text-xs text-left text-gray-500 dark:text-[#98989D] hover:bg-gray-50 dark:hover:bg-[#252526] transition-colors"
-    >
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M6.5 2l-3 3 3 3" />
-      </svg>
-      {label}
-    </button>
-  );
-
-  const Divider = () => (
-    <div className="border-t border-gray-100 dark:border-[#38383A]" />
-  );
+  const handleBackToMain = () => {
+    setSubMenu('main');
+    setNewTagName('');
+  };
 
   return (
     <div className="relative" ref={menuRef}>
@@ -99,7 +106,7 @@ export default function TaskOverflow({ task, align = 'right' }: TaskOverflowProp
         >
           {subMenu === 'tags' && (
             <>
-              <BackButton label="Tags" />
+              <BackButton label="Tags" onBack={handleBackToMain} />
               <Divider />
               {tags.map(tag => {
                 const hasTag = task.tagIds.includes(tag.id);
@@ -145,7 +152,7 @@ export default function TaskOverflow({ task, align = 'right' }: TaskOverflowProp
 
           {subMenu === 'repeat' && (
             <>
-              <BackButton label="Repeat" />
+              <BackButton label="Repeat" onBack={handleBackToMain} />
               <Divider />
               <button
                 onClick={() => { updateRepeat(task.id, null); closeMenu(); }}
@@ -169,7 +176,7 @@ export default function TaskOverflow({ task, align = 'right' }: TaskOverflowProp
 
           {subMenu === 'project' && (
             <>
-              <BackButton label="Move to" />
+              <BackButton label="Move to" onBack={handleBackToMain} />
               <Divider />
               <button
                 onClick={() => { moveTaskToProject(task.id, null); closeMenu(); }}
@@ -300,7 +307,7 @@ export default function TaskOverflow({ task, align = 'right' }: TaskOverflowProp
               <div className="border-t border-gray-100 dark:border-[#38383A] my-1" />
 
               <button
-                onClick={() => { task.isToday ? removeTaskFromToday(task.id) : moveTaskToToday(task.id); closeMenu(); }}
+                onClick={() => { if (task.isToday) removeTaskFromToday(task.id); else moveTaskToToday(task.id); closeMenu(); }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-gray-700 dark:text-[#E5E5E5] hover:bg-gray-50 dark:hover:bg-[#252526] transition-colors"
               >
                 <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`flex-shrink-0 ${task.isToday ? 'text-orange-500' : 'text-gray-400'}`}>
@@ -311,7 +318,7 @@ export default function TaskOverflow({ task, align = 'right' }: TaskOverflowProp
               </button>
 
               <button
-                onClick={() => { task.isSomeday ? removeTaskFromSomeday(task.id) : moveTaskToSomeday(task.id); closeMenu(); }}
+                onClick={() => { if (task.isSomeday) removeTaskFromSomeday(task.id); else moveTaskToSomeday(task.id); closeMenu(); }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-left text-gray-700 dark:text-[#E5E5E5] hover:bg-gray-50 dark:hover:bg-[#252526] transition-colors"
               >
                 <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`flex-shrink-0 ${task.isSomeday ? 'text-indigo-400' : 'text-gray-400'}`}>

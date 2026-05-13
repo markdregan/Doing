@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useTaskStore } from './useTaskStore'
+import type { Task } from '../types'
 
 const { mockFrom, mockChannel } = vi.hoisted(() => ({
   mockFrom: vi.fn(),
@@ -43,12 +44,12 @@ function createBuilder() {
   return builder
 }
 
-function makeTask(overrides = {}) {
+function makeTask(overrides: Partial<Task> = {}): Task {
   return {
     id: 't1', title: 'Task', notes: '', projectId: null, dueDate: null,
     isToday: false, isSomeday: false, completed: false, completedAt: null,
     deletedAt: null, createdAt: '2024-01-01', sortOrder: 0, tagIds: [],
-    repeat: null, assignedTo: null, assignedBy: null,
+    repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
     ...overrides,
   }
 }
@@ -56,7 +57,7 @@ function makeTask(overrides = {}) {
 function makeProject(overrides = {}) {
   return {
     id: 'p1', title: 'P', color: 'blue' as const, sortOrder: 0,
-    createdAt: '2024-01-01', userId: 'user-1', ...overrides,
+    createdAt: '2024-01-01', userId: 'user-1', aiGenerationMetadata: null, ...overrides,
   }
 }
 
@@ -65,7 +66,7 @@ beforeEach(() => {
     userId: null,
     tasks: [],
     projects: [],
-    activeView: 'inbox',
+    activeView: 'home',
     activeProjectId: null,
     dataLoading: true,
     tags: [],
@@ -79,7 +80,7 @@ beforeEach(() => {
 })
 
 describe('initialize', () => {
-  it('loads projects, tasks, tags, and profiles', async () => {
+  it('loads projects, tasks, tags, profiles, and agent questions', async () => {
     const projectBuilder = createBuilder()
     const taskBuilder = createBuilder()
     const tagBuilder = createBuilder()
@@ -87,6 +88,7 @@ describe('initialize', () => {
     const checklistBuilder = createBuilder()
     const sharesBuilder = createBuilder()
     const profilesBuilder = createBuilder()
+    const agentQuestionsBuilder = createBuilder()
     projectBuilder.order.mockResolvedValue({
       data: [{ id: 'p1', title: 'Work', color: 'blue', sort_order: 0, created_at: '2024-01-01', user_id: 'user-1' }],
       error: null,
@@ -103,6 +105,7 @@ describe('initialize', () => {
     checklistBuilder.select.mockResolvedValue({ data: [{ id: 'cl1', task_id: 't1', title: 'Subtask', completed: false, sort_order: 0, created_at: '2024-01-01' }], error: null })
     sharesBuilder.or.mockResolvedValue({ data: [], error: null })
     profilesBuilder.limit.mockResolvedValue({ data: [{ id: 'user-1', email: 'a@b.com', display_name: 'Alice', avatar_url: null, created_at: '2024-01-01' }], error: null })
+    agentQuestionsBuilder.order.mockResolvedValue({ data: [], error: null })
     mockFrom
       .mockReturnValueOnce(projectBuilder)
       .mockReturnValueOnce(taskBuilder)
@@ -111,6 +114,7 @@ describe('initialize', () => {
       .mockReturnValueOnce(checklistBuilder)
       .mockReturnValueOnce(sharesBuilder)
       .mockReturnValueOnce(profilesBuilder)
+      .mockReturnValueOnce(agentQuestionsBuilder)
 
     await useTaskStore.getState().initialize('user-1')
 
@@ -127,7 +131,7 @@ describe('initialize', () => {
     expect(state.checklistItems[0].title).toBe('Subtask')
     expect(state.profiles).toHaveLength(1)
     expect(state.profiles[0].displayName).toBe('Alice')
-    expect(mockFrom).toHaveBeenCalledTimes(7)
+    expect(mockFrom).toHaveBeenCalledTimes(8)
     expect(mockFrom).toHaveBeenCalledWith('projects')
     expect(mockFrom).toHaveBeenCalledWith('tasks')
     expect(mockFrom).toHaveBeenCalledWith('tags')
@@ -135,6 +139,7 @@ describe('initialize', () => {
     expect(mockFrom).toHaveBeenCalledWith('task_checklist_items')
     expect(mockFrom).toHaveBeenCalledWith('project_shares')
     expect(mockFrom).toHaveBeenCalledWith('profiles')
+    expect(mockFrom).toHaveBeenCalledWith('agent_questions')
   })
 
   it('seeds onboarding data when empty', async () => {
@@ -165,7 +170,7 @@ describe('initialize', () => {
     const state = useTaskStore.getState()
     expect(state.dataLoading).toBe(false)
     expect(state.projects).toHaveLength(4)
-    expect(state.projects[0].title).toBe('Welcome to Things')
+    expect(state.projects[0].title).toBe('Welcome to Doing')
     expect(state.tasks).toHaveLength(23)
     expect(state.tags).toHaveLength(6)
     expect(state.checklistItems).toHaveLength(14)
@@ -334,9 +339,9 @@ describe('toggleTask', () => {
 })
 
 describe('setActiveView', () => {
-  it('switches to all view', () => {
-    useTaskStore.getState().setActiveView('all')
-    expect(useTaskStore.getState().activeView).toBe('all')
+  it('switches to home view', () => {
+    useTaskStore.getState().setActiveView('home')
+    expect(useTaskStore.getState().activeView).toBe('home')
     expect(useTaskStore.getState().activeProjectId).toBeNull()
   })
 
@@ -439,7 +444,7 @@ describe('clearAll', () => {
     expect(state.tags).toEqual([])
     expect(state.checklistItems).toEqual([])
     expect(state.profiles).toEqual([])
-    expect(state.activeView).toBe('inbox')
+    expect(state.activeView).toBe('home')
     expect(state.activeTagId).toBeNull()
     expect(state.dataLoading).toBe(true)
     expect(state.trashUndo).toBeNull()

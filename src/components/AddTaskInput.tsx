@@ -17,8 +17,8 @@ export default function AddTaskInput({ projectId }: { projectId?: string | null 
       title: value.trim(),
       notes: notes.trim() || undefined,
       projectId: projectId ?? undefined,
-      isToday: activeView === 'today',
-      isSomeday: activeView === 'someday',
+      isToday: false,
+      isSomeday: false,
     });
     setValue('');
     setNotes('');

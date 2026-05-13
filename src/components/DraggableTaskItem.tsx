@@ -3,7 +3,7 @@ import { CSS } from '@dnd-kit/utilities'
 import TaskItem from './TaskItem'
 import type { Task } from '../types'
 
-export default function DraggableTaskItem({ task }: { task: Task }) {
+export default function DraggableTaskItem({ task, rightSlot }: { task: Task; rightSlot?: React.ReactNode }) {
   const {
     attributes, listeners, setNodeRef, transform, transition, isDragging,
   } = useSortable({
@@ -21,7 +21,7 @@ export default function DraggableTaskItem({ task }: { task: Task }) {
 
   return (
     <div ref={setNodeRef} style={style} {...attributes}>
-      <TaskItem task={task} dragListeners={listeners} />
+      <TaskItem task={task} dragListeners={listeners} rightSlot={rightSlot} />
     </div>
   )
 }

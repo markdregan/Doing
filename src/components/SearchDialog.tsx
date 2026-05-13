@@ -54,7 +54,7 @@ export default function SearchDialog({ open, onOpenChange }: SearchDialogProps) 
     if (projectId) {
       setActiveView('project', projectId);
     } else {
-      setActiveView('inbox');
+      setActiveView('home');
     }
     onOpenChange(false);
   };

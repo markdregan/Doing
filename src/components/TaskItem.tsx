@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useTaskStore } from '../store/useTaskStore';
 import { TAG_COLOR_MAP } from '../lib/constants';
+import { getTaskDueLabel } from '../lib/dateUtils';
 import type { Task } from '../types';
 import TaskFooter from './TaskFooter';
 import TaskOverflow from './TaskOverflow';
@@ -19,30 +20,13 @@ function getCompletedDateLabel(dateStr: string): string {
   return `Completed ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined })}`;
 }
 
-function getDueDateLabel(dateStr: string): string {
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
-
-  if (dateStr === todayStr) return 'Today';
-  if (dateStr === tomorrowStr) return 'Tomorrow';
-
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-  const date = new Date(dateStr + 'T00:00:00');
-  if (date.getFullYear() === today.getFullYear()) return `${days[date.getDay()]} ${date.getDate()}`;
-  return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
-}
-
 interface TaskItemProps {
   task: Task;
-  dragListeners?: Record<string, Function>;
+  dragListeners?: Record<string, unknown>;
+  rightSlot?: React.ReactNode;
 }
 
-export default function TaskItem({ task, dragListeners }: TaskItemProps) {
+export default function TaskItem({ task, dragListeners, rightSlot }: TaskItemProps) {
   const updateTask = useTaskStore(s => s.updateTask);
   const toggleTask = useTaskStore(s => s.toggleTask);
   const tags = useTaskStore(s => s.tags);
@@ -76,6 +60,12 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
   const taskChecklistItems = checklistItems.filter(i => i.taskId === task.id && !task.deletedAt);
   const completedCount = taskChecklistItems.filter(i => i.completed).length;
   const totalCount = taskChecklistItems.length;
+
+  const handleSaveNotes = () => {
+    if (notesText !== task.notes) {
+      updateTask(task.id, { notes: notesText });
+    }
+  };
 
   // Focus title input when expanding
   useEffect(() => {
@@ -121,12 +111,6 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
     }
   };
 
-  const handleSaveNotes = () => {
-    if (notesText !== task.notes) {
-      updateTask(task.id, { notes: notesText });
-    }
-  };
-
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       setEditTitle(task.title);
@@ -150,7 +134,7 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
         {/* Drag handle + Checkbox column */}
         <div className="flex items-start gap-0.5 mt-0.5">
           <button
-            {...(dragListeners ?? {})}
+            {...(dragListeners ?? {}) as React.HTMLAttributes<HTMLButtonElement>}
             className={`p-0.5 rounded cursor-grab active:cursor-grabbing transition-all ${
               isLogbook ? 'hidden' : 'max-md:opacity-100 opacity-0 group-hover/item:opacity-100'
             } text-gray-300 dark:text-[#48484A] hover:text-gray-500 dark:hover:text-[#98989D]`}
@@ -359,6 +343,8 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
         {/* Right side metadata (collapsed) */}
         {!isActive && !isLogbook && !isTrash && (
           <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+            {rightSlot}
+
             {task.assignedTo && (() => {
               const assignee = profiles.find(p => p.id === task.assignedTo);
               return (
@@ -390,7 +376,7 @@ export default function TaskItem({ task, dragListeners }: TaskItemProps) {
                   ? 'text-red-400 dark:text-[#F48FB1] bg-red-50/50 dark:bg-[#3C1C1E]'
                   : 'text-blue-400 dark:text-[#64B5F6] bg-blue-50/50 dark:bg-[#1C3A5C]'
               }`}>
-                {getDueDateLabel(task.dueDate)}
+                {getTaskDueLabel(task.dueDate)}
               </span>
             )}
 

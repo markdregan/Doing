@@ -4,11 +4,16 @@
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Ibarra Real Nova", "EB Garamond", "Georgia", serif;
   --color-things-blue: #007AFF;
   --color-things-sidebar-dark: #151516;
   --color-things-bg-dark: #1D1D1F;
   --color-things-secondary: #98989D;
-  --color-things-border-dark: #2C2C2E;
+  --color-things-border-dark: #38383A;
+
+  /* Redesign tokens */
+  --color-plate-bg-dark: #252526;
+  --color-plate-border-dark: #38383A;
 }
 
 html {
@@ -25,6 +30,11 @@ body {
 .dark body {
   background-color: var(--color-things-bg-dark);
   color: #F5F5F5;
+}
+
+.bg-dot-grid {
+  background-image: radial-gradient(circle at 1px 1px, var(--color-things-border-dark) 1px, transparent 0);
+  background-size: 24px 24px;
 }
 
 ::selection {

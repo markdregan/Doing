@@ -82,7 +82,7 @@ export default function ShareDialog({ open, onOpenChange, project }: ShareDialog
               <button
                 onClick={handleShare}
                 disabled={status === 'loading' || !email.trim()}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-[#48484A] rounded-lg transition-colors disabled:cursor-not-allowed"
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 dark:disabled:bg-[#48484A] rounded-full transition-colors disabled:cursor-not-allowed"
               >
                 {status === 'loading' ? (
                   <span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
