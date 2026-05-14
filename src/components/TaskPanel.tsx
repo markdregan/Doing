@@ -5,6 +5,7 @@ import { logger } from '../lib/logger'
 import DraggableTaskItem from './DraggableTaskItem'
 import AddTaskInput from './AddTaskInput'
 import ResizeHandle from './ResizeHandle'
+import TaskProvenanceBadge from './TaskProvenanceBadge'
 import type { TaskStatus } from '../types'
 
 const log = logger.child({ module: 'TaskPanel' })
@@ -27,9 +28,10 @@ interface TaskPanelProps {
   projectId: string
   collapsed: boolean
   onToggle: () => void
+  showProvenance?: boolean
 }
 
-export default function TaskPanel({ projectId, collapsed, onToggle }: TaskPanelProps) {
+export default function TaskPanel({ projectId, collapsed, onToggle, showProvenance }: TaskPanelProps) {
   const tasks = useTaskStore(s => s.tasks)
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -102,6 +104,7 @@ export default function TaskPanel({ projectId, collapsed, onToggle }: TaskPanelP
             {activeTasks.map(task => (
               <DraggableTaskItem key={task.id} task={task} rightSlot={
                 <div className="flex items-center gap-1.5">
+                  {showProvenance && <TaskProvenanceBadge source={task.source} />}
                   <StatusDot status={task.status} />
                   {task.status === 'waiting' && (
                     <span className="text-[10px] text-amber-500 dark:text-amber-400 font-medium">?</span>

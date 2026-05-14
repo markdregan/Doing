@@ -24,6 +24,8 @@ export interface Task {
   repeat: RepeatInterval | null;
   assignedTo: string | null;
   assignedBy: string | null;
+  source: TaskSource;
+  sourceConversationId?: string;
 }
 
 export interface Project {
@@ -93,6 +95,7 @@ export interface AgentConversation {
   goalText: string;
   createdAt: string;
   updatedAt: string;
+  planDraft?: PlanDraft | null;
 }
 
 export interface AgentMessage {
@@ -133,7 +136,9 @@ export interface GoalBriefQuestion {
   options?: string[];
 }
 
-export type ViewType = 'home' | 'awaiting-input' | 'project' | 'logbook' | 'trash';
+export type ViewType = 'home' | 'project' | 'logbook' | 'trash' | 'agent-dashboard';
+
+export type TaskSource = 'agent' | 'user' | 'assignment' | 'recurring';
 
 export interface AgentQuestion {
   id: string;
@@ -149,7 +154,15 @@ export interface AgentQuestion {
   resolvedAt?: string;
 }
 
-export type ActivityEventType = 'agent_action' | 'agent_question' | 'user_response' | 'task_completed' | 'task_added' | 'plan_approved';
+export interface ChatAttachment {
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+}
+
+export type ActivityEventType = 'agent_action' | 'agent_question' | 'user_response' | 'task_completed' | 'task_added' | 'plan_approved' | 'email_sent' | 'call_made' | 'text_sent' | 'research_complete';
+
+export type AgentState = 'idle' | 'thinking' | 'working' | 'needs_input' | 'blocked' | 'completed';
 
 export interface AgentActivityEvent {
   id: string;
@@ -159,4 +172,23 @@ export interface AgentActivityEvent {
   details?: string;
   timestamp: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface AgentCurrentAction {
+  projectId: string;
+  taskId?: string;
+  description: string;
+  state: AgentState;
+  progress?: number;
+  startedAt: string;
+}
+
+export interface DemoSeedData {
+  project: Project;
+  tasks: Task[];
+  tags: Tag[];
+  checklistItems: ChecklistItem[];
+  activityEvents: AgentActivityEvent[];
+  currentAction: AgentCurrentAction | null;
+  answeredQuestion: { taskId: string; question: string; answer: string };
 }

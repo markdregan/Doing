@@ -13,7 +13,6 @@ import Sidebar from './components/Sidebar'
 import TopBar from './components/TopBar'
 import MobileDrawer from './components/MobileDrawer'
 import HomeView from './components/HomeView'
-import AwaitingInputView from './components/AwaitingInputView'
 import TaskList from './components/TaskList'
 import QuickEntry from './components/QuickEntry'
 import SearchDialog from './components/SearchDialog'
@@ -87,7 +86,6 @@ function getVisibleTaskIds() {
 
 function getViewTitle(activeView: string, activeProjectId: string | null, projects: import('./types').Project[]): { title: string; subtitle?: string } {
   if (activeView === 'home') return { title: 'Home' }
-  if (activeView === 'awaiting-input') return { title: 'Awaiting Input' }
   if (activeView === 'trash') return { title: 'Trash' }
   if (activeView === 'logbook') return { title: 'Logbook' }
   if (activeView === 'project' && activeProjectId) {
@@ -142,10 +140,6 @@ function AppShell() {
       if ((e.metaKey || e.ctrlKey) && e.key === '1') {
         e.preventDefault()
         useTaskStore.getState().setActiveView('home')
-      }
-      if ((e.metaKey || e.ctrlKey) && e.key === '2') {
-        e.preventDefault()
-        useTaskStore.getState().setActiveView('awaiting-input')
       }
     }
     document.addEventListener('keydown', handler)
@@ -211,7 +205,6 @@ function AppShell() {
   function renderMainContent() {
     if (activeView === 'home') return <HomeView />
     if (activeView === 'project') return <HomeView />
-    if (activeView === 'awaiting-input') return <AwaitingInputView />
     if (activeView === 'logbook' || activeView === 'trash') return <TaskList />
     return <HomeView />
   }

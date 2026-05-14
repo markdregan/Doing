@@ -163,6 +163,43 @@ describe('useAIStudioStore', () => {
       await useAIStudioStore.getState().sendChatMessage('nonexistent', 'hello')
       expect(useAIStudioStore.getState().error).toBe('Conversation not found')
     })
+
+    it('does not transition to review when conversation is already active', async () => {
+      const builder = createBuilder()
+      mockFrom.mockReturnValue(builder)
+
+      // Pre-set an active conversation
+      useAIStudioStore.setState({
+        conversations: [{
+          id: 'c1', userId: 'user-1', title: 'Italy Trip', emoji: '\u2728',
+          status: 'active' as const, goalText: 'Plan a trip',
+          createdAt: '2024-01-01', updatedAt: '2024-01-01',
+        }],
+      })
+
+      mockFunctions.invoke.mockResolvedValue({
+        data: {
+          messages: [{ role: 'agent', content: 'Updated plan', created_at: '2024-01-01' }],
+          planDraft: {
+            projectTitle: 'Italy Trip',
+            projectColor: 'blue',
+            tasks: [{ title: 'Book flights' }],
+            version: 2,
+          },
+        },
+        error: null,
+      })
+
+      await useAIStudioStore.getState().sendChatMessage('c1', 'Add more tasks')
+
+      const state = useAIStudioStore.getState()
+      // Should NOT transition to review
+      expect(state.conversations.find(c => c.id === 'c1')?.status).toBe('active')
+      // Should NOT update planDrafts
+      expect(state.planDrafts['c1']).toBeUndefined()
+      // Messages still appended
+      expect(state.messagesByConversation['c1']).toHaveLength(2)
+    })
   })
 
   describe('conversation lifecycle', () => {
@@ -248,6 +285,66 @@ describe('useAIStudioStore', () => {
 
       expect(useAIStudioStore.getState().messagesByConversation['c1']).toEqual([])
     })
+
+    it('does not revert to review when conversation is already active', async () => {
+      const builder = createBuilder()
+      builder.order.mockResolvedValue({
+        data: [
+          { id: 'm1', conversation_id: 'c1', role: 'user', content: 'Plan a trip', metadata: {}, created_at: '2024-01-01T00:00:00Z' },
+          { id: 'm2', conversation_id: 'c1', role: 'agent', content: 'Here is a plan', metadata: { planDraft: { projectTitle: 'Italy Trip', projectColor: 'blue', tasks: [{ title: 'Book flights' }], version: 1 } }, created_at: '2024-01-01T00:01:00Z' },
+        ],
+        error: null,
+      })
+      mockFrom.mockReturnValue(builder)
+
+      // Pre-set an active conversation (approved plan)
+      useAIStudioStore.setState({
+        conversations: [{
+          id: 'c1', userId: 'user-1', title: 'Italy Trip', emoji: '\u2728',
+          status: 'active' as const, goalText: 'Plan a trip',
+          createdAt: '2024-01-01', updatedAt: '2024-01-01',
+        }],
+      })
+
+      await useAIStudioStore.getState().loadMessages('c1')
+
+      const state = useAIStudioStore.getState()
+      // Status should remain active, not revert to review
+      expect(state.conversations.find(c => c.id === 'c1')?.status).toBe('active')
+      // planDraft should NOT be extracted (guard prevents it for active convs)
+      expect(state.planDrafts['c1']).toBeUndefined()
+    })
+
+    it('falls back to message metadata when conv.planDraft is null', async () => {
+      const builder = createBuilder()
+      builder.order.mockResolvedValue({
+        data: [
+          { id: 'm1', conversation_id: 'c2', role: 'user', content: 'Hi', metadata: {}, created_at: '2024-01-01T00:00:00Z' },
+          { id: 'm2', conversation_id: 'c2', role: 'agent', content: 'Here is a plan', metadata: { planDraft: { projectTitle: 'Project X', projectColor: 'blue', tasks: [{ title: 'Task 1' }], version: 1 } }, created_at: '2024-01-01T00:01:00Z' },
+        ],
+        error: null,
+      })
+      mockFrom.mockReturnValue(builder)
+
+      // Conversation with planDraft = null (old data, no plan_draft column populated)
+      useAIStudioStore.setState({
+        conversations: [{
+          id: 'c2', userId: 'user-1', title: 'Test', emoji: '\u2728',
+          status: 'draft' as const, goalText: 'Test',
+          createdAt: '2024-01-01', updatedAt: '2024-01-01',
+          planDraft: null,
+        }],
+      })
+
+      await useAIStudioStore.getState().loadMessages('c2')
+
+      const state = useAIStudioStore.getState()
+      // Should extract from message metadata (fallback path)
+      expect(state.planDrafts['c2']).toBeDefined()
+      expect(state.planDrafts['c2'].projectTitle).toBe('Project X')
+      const conv = state.conversations.find(c => c.id === 'c2')
+      expect(conv?.status).toBe('review')
+    })
   })
 
   describe('setActiveConversation', () => {
@@ -273,6 +370,84 @@ describe('useAIStudioStore', () => {
       await useAIStudioStore.getState().setActiveConversation(null)
 
       expect(useAIStudioStore.getState().activeConversationId).toBeNull()
+    })
+  })
+
+    describe('approvePlan', () => {
+    it('creates a project and transitions conversation to active', async () => {
+      const builder = createBuilder()
+      mockFrom.mockReturnValue(builder)
+      builder.update.mockReturnValue(builder)
+      builder.eq.mockReturnValue(builder)
+      builder.eq.mockResolvedValue({ error: null })
+
+      // Mock materializePlan to return a project
+      useTaskStore.setState({
+        userId: 'user-1',
+        tasks: [],
+        projects: [],
+        materializePlan: vi.fn().mockResolvedValue('proj-1'),
+      })
+
+      useAIStudioStore.setState({
+        conversations: [{
+          id: 'c1', userId: 'user-1', title: 'Italy Trip', emoji: '\u2728',
+          status: 'review' as const, goalText: 'Plan a trip',
+          createdAt: '2024-01-01', updatedAt: '2024-01-01',
+        }],
+        planDrafts: {
+          c1: {
+            projectTitle: 'Italy Trip',
+            projectColor: 'blue',
+            tasks: [{ title: 'Book flights' }],
+            version: 1,
+          },
+        },
+      })
+
+      await useAIStudioStore.getState().approvePlan('c1')
+
+      const state = useAIStudioStore.getState()
+      const conv = state.conversations.find(c => c.id === 'c1')
+      expect(conv?.status).toBe('active')
+      expect(conv?.title).toBe('Italy Trip')
+    })
+
+    it('guards against double approval', async () => {
+      useAIStudioStore.setState({
+        conversations: [{
+          id: 'c1', userId: 'user-1', title: 'Italy Trip', emoji: '\u2728',
+          status: 'active' as const, goalText: 'Plan a trip',
+          createdAt: '2024-01-01', updatedAt: '2024-01-01',
+        }],
+        planDrafts: {
+          c1: {
+            projectTitle: 'Italy Trip',
+            projectColor: 'blue',
+            tasks: [],
+            version: 1,
+          },
+        },
+      })
+
+      await useAIStudioStore.getState().approvePlan('c1')
+
+      expect(useAIStudioStore.getState().error).toBe('Plan already approved')
+    })
+
+    it('handles missing plan draft', async () => {
+      useAIStudioStore.setState({
+        conversations: [{
+          id: 'c1', userId: 'user-1', title: 'Test', emoji: '\u2728',
+          status: 'review' as const, goalText: 'Test',
+          createdAt: '2024-01-01', updatedAt: '2024-01-01',
+        }],
+        planDrafts: {},
+      })
+
+      await useAIStudioStore.getState().approvePlan('c1')
+
+      expect(useAIStudioStore.getState().error).toBe('No plan to approve')
     })
   })
 

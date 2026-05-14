@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { supabase } from '../lib/supabase'
 import { logger as parentLogger } from '../lib/logger'
-import type { Task, TaskStatus, Project, Tag, ChecklistItem, ViewType, ProjectColor, TagColor, RepeatInterval, ProjectShare, Profile, PlanDraft, AiGenerationMetadata, AgentQuestion } from '../types'
+import type { Task, TaskSource, TaskStatus, Project, Tag, ChecklistItem, ViewType, ProjectColor, TagColor, RepeatInterval, ProjectShare, Profile, PlanDraft, AiGenerationMetadata, AgentQuestion, AgentCurrentAction, DemoSeedData } from '../types'
 import { PROJECT_COLOR_MAP, TAG_COLOR_MAP } from '../lib/constants'
 
 const log = parentLogger.child({ module: 'useTaskStore' })
@@ -55,6 +55,8 @@ function taskFromRow(row: Record<string, unknown>): Task {
     repeat: (row.repeat_interval as RepeatInterval) ?? null,
     assignedTo: (row.assigned_to as string) ?? null,
     assignedBy: (row.assigned_by as string) ?? null,
+    source: (row.source as Task['source']) ?? 'user',
+    sourceConversationId: (row.source_conversation_id as string) ?? undefined,
   }
 }
 
@@ -77,6 +79,8 @@ function taskToRow(task: Task, userId: string) {
     repeat_interval: task.repeat,
     assigned_to: task.assignedTo,
     assigned_by: task.assignedBy,
+    source: task.source,
+    source_conversation_id: task.sourceConversationId ?? null,
   }
 }
 
@@ -193,10 +197,10 @@ interface TaskStore {
   rightPanelOpen: boolean
 
   initialize: (userId: string) => Promise<void>
-  seedOnboardingData: () => Promise<void>
+  seedDemoProject: (data: DemoSeedData) => void
   clearAll: () => void
 
-  addTask: (params: { title: string; notes?: string; projectId?: string; dueDate?: string; isToday?: boolean; isSomeday?: boolean; tagIds?: string[]; repeat?: RepeatInterval | null }) => Promise<void>
+  addTask: (params: { title: string; notes?: string; projectId?: string; dueDate?: string; isToday?: boolean; isSomeday?: boolean; tagIds?: string[]; repeat?: RepeatInterval | null; source?: TaskSource }) => Promise<void>
   updateTask: (id: string, updates: Partial<Task>) => Promise<void>
   softDeleteTask: (id: string) => Promise<void>
   deleteTask: (id: string) => Promise<void>
@@ -249,6 +253,11 @@ interface TaskStore {
   addAgentQuestion: (question: AgentQuestion) => void
   toggleRightPanel: () => void
   setRightPanelOpen: (open: boolean) => void
+
+  agentCurrentActions: AgentCurrentAction[]
+  setAgentCurrentAction: (action: AgentCurrentAction) => void
+  clearAgentCurrentAction: (projectId: string) => void
+  updateAgentCurrentAction: (projectId: string, updates: Partial<AgentCurrentAction>) => void
 }
 
 export const useTaskStore = create<TaskStore>()((set, get) => ({
@@ -267,6 +276,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
   _lastInviteTime: {},
   projectShares: [],
   agentQuestions: [],
+  agentCurrentActions: [],
   rightPanelOpen: true,
   _channels: [],
 
@@ -346,11 +356,6 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       isFirstTime,
     })
 
-    if (isFirstTime) {
-      log.info('initialize_seeding_onboarding_data')
-      await get().seedOnboardingData()
-    }
-
     set({ dataLoading: false })
     log.info('initialize_complete')
 
@@ -394,275 +399,14 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
     await get().loadAgentQuestions()
   },
 
-  seedOnboardingData: async () => {
-    const userId = get().userId
-    if (!userId) return
-
-    const now = new Date().toISOString()
-    const inDays = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10)
-    const uid = () => crypto.randomUUID()
-
-    const tagHighPriority = uid()
-    const tagFun = uid()
-    const tagHealth = uid()
-    const tagFinance = uid()
-    const tagLearning = uid()
-    const tagIdeas = uid()
-
-    const tags: Tag[] = [
-      { id: tagHighPriority, title: 'high priority', color: 'red' as const, createdAt: now },
-      { id: tagFun, title: 'fun', color: 'yellow' as const, createdAt: now },
-      { id: tagHealth, title: 'health', color: 'teal' as const, createdAt: now },
-      { id: tagFinance, title: 'finance', color: 'green' as const, createdAt: now },
-      { id: tagLearning, title: 'learning', color: 'blue' as const, createdAt: now },
-      { id: tagIdeas, title: 'ideas', color: 'purple' as const, createdAt: now },
-    ]
-
-    const projWelcome = uid()
-    const projVacation = uid()
-    const projHome = uid()
-    const projSide = uid()
-
-    const projects: Project[] = [
-      { id: projWelcome, title: 'Welcome to Doing', color: 'blue' as const, sortOrder: 0, createdAt: now, userId, aiGenerationMetadata: null },
-      { id: projVacation, title: 'Plan a Vacation', color: 'green' as const, sortOrder: 1, createdAt: now, userId, aiGenerationMetadata: null },
-      { id: projHome, title: 'Home Projects', color: 'orange' as const, sortOrder: 2, createdAt: now, userId, aiGenerationMetadata: null },
-      { id: projSide, title: 'Side Projects', color: 'purple' as const, sortOrder: 3, createdAt: now, userId, aiGenerationMetadata: null },
-    ]
-
-    let s = 0
-
-    const tkWelcomeNavigate = uid()
-    const tkWelcomeQuickEntry = uid()
-    const tkWelcomeToday = uid()
-    const tkWelcomeChecklist = uid()
-    const tkWelcomeComplete = uid()
-
-    const tkVacationFlights = uid()
-    const tkVacationHotels = uid()
-    const tkVacationInsurance = uid()
-    const tkVacationPack = uid()
-    const tkVacationBank = uid()
-    const tkVacationTransfer = uid()
-
-    const tkHomeFaucet = uid()
-    const tkHomeHerbs = uid()
-    const tkHomeKitchen = uid()
-    const tkHomeStretch = uid()
-
-    const tkSideRust = uid()
-    const tkSideAtomic = uid()
-    const tkSideStory = uid()
-    const tkSidePortfolio = uid()
-
-    const tkInboxGym = uid()
-    const tkInboxDentist = uid()
-    const tkInboxCard = uid()
-    const tkInboxBirthday = uid()
-
-    const tasks: Task[] = [
-      {
-        id: tkWelcomeNavigate, title: 'Navigate with the sidebar',
-        notes: 'The sidebar shows your views: Inbox for quick capture, Today for what\'s on your plate, Someday for ideas, All for everything, and your Projects below.',
-        projectId: projWelcome, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkWelcomeQuickEntry, title: 'Try Quick Entry (\u2318K)',
-        notes: 'Press \u2318K (or Ctrl+K on Windows) to open the command palette. Add tasks from anywhere without leaving your current view.',
-        projectId: projWelcome, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkWelcomeToday, title: 'Tag a task with Today',
-        notes: 'This task appears in Today because it has the today flag. Click the sun icon on any task or set it in Quick Entry to use this view.',
-        projectId: projWelcome, dueDate: null, isToday: true, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkWelcomeChecklist, title: 'Try a checklist',
-        notes: 'Break tasks into smaller steps with checklists. Click the checklist icon on this task to see the items below.',
-        projectId: projWelcome, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkWelcomeComplete, title: 'Complete this task to see it in Logbook',
-        notes: '',
-        projectId: projWelcome, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-
-      {
-        id: tkVacationFlights, title: 'Book flights',
-        notes: 'Compare prices on Skyscanner and book early for the best deals.',
-        projectId: projVacation, dueDate: inDays(30), isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkVacationHotels, title: 'Research hotels',
-        notes: '',
-        projectId: projVacation, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkVacationInsurance, title: 'Get travel insurance',
-        notes: 'Check if your credit card offers travel insurance. World Nomads is a good alternative.',
-        projectId: projVacation, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkVacationPack, title: 'Pack suitcase',
-        notes: '',
-        projectId: projVacation, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkVacationBank, title: 'Notify bank of travel',
-        notes: '',
-        projectId: projVacation, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkVacationTransfer, title: 'Book airport transfer',
-        notes: '',
-        projectId: projVacation, dueDate: inDays(30), isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-
-      {
-        id: tkHomeFaucet, title: 'Fix leaky faucet',
-        notes: 'Check the washer in the kitchen faucet. Might need a replacement from the hardware store.',
-        projectId: projHome, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkHomeHerbs, title: 'Plant herbs on balcony',
-        notes: 'Basil, mint, and rosemary would be great for cooking.',
-        projectId: projHome, dueDate: null, isToday: true, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkHomeKitchen, title: 'Deep clean kitchen',
-        notes: '',
-        projectId: projHome, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkHomeStretch, title: 'Morning stretch',
-        notes: 'Ten minutes of stretching to start the day right.',
-        projectId: projHome, dueDate: null, isToday: true, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: 'daily' as const, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-
-      {
-        id: tkSideRust, title: 'Learn Rust',
-        notes: '',
-        projectId: projSide, dueDate: null, isToday: false, isSomeday: true,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkSideAtomic, title: 'Read Atomic Habits',
-        notes: 'Highly recommended by multiple friends.',
-        projectId: projSide, dueDate: null, isToday: false, isSomeday: true,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkSideStory, title: 'Write a short story',
-        notes: '',
-        projectId: projSide, dueDate: null, isToday: false, isSomeday: true,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkSidePortfolio, title: 'Design personal portfolio',
-        notes: '',
-        projectId: projSide, dueDate: null, isToday: false, isSomeday: true,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-
-      {
-        id: tkInboxGym, title: 'Renew gym membership',
-        notes: '',
-        projectId: null, dueDate: inDays(14), isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkInboxDentist, title: 'Schedule dentist appointment',
-        notes: 'Last visit was eight months ago. Time for a check-up.',
-        projectId: null, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkInboxCard, title: 'Review credit card statement',
-        notes: '',
-        projectId: null, dueDate: null, isToday: false, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s++, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-      {
-        id: tkInboxBirthday, title: 'Plan birthday dinner',
-        notes: 'Check which restaurants have availability.',
-        projectId: null, dueDate: null, isToday: true, isSomeday: false,
-        completed: false, completedAt: null, deletedAt: null, createdAt: now, sortOrder: s, tagIds: [], repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
-      },
-    ]
-
-    const taskTagMappings: { taskId: string; tagId: string }[] = [
-      { taskId: tkVacationFlights, tagId: tagHighPriority },
-      { taskId: tkVacationHotels, tagId: tagHighPriority },
-      { taskId: tkHomeHerbs, tagId: tagFun },
-      { taskId: tkHomeStretch, tagId: tagHealth },
-      { taskId: tkSideRust, tagId: tagLearning },
-      { taskId: tkSideAtomic, tagId: tagLearning },
-      { taskId: tkSideStory, tagId: tagFun },
-      { taskId: tkSidePortfolio, tagId: tagIdeas },
-      { taskId: tkInboxGym, tagId: tagHealth },
-      { taskId: tkInboxDentist, tagId: tagHealth },
-      { taskId: tkInboxCard, tagId: tagFinance },
-      { taskId: tkInboxBirthday, tagId: tagFun },
-      { taskId: tkVacationBank, tagId: tagFinance },
-    ]
-
-    const taskTagRows = taskTagMappings.map(m => ({ task_id: m.taskId, tag_id: m.tagId }))
-
-    const checklistItems: ChecklistItem[] = [
-      { id: uid(), taskId: tkWelcomeChecklist, title: 'Write a task', completed: false, sortOrder: 0, createdAt: now },
-      { id: uid(), taskId: tkWelcomeChecklist, title: 'Add checklist items', completed: false, sortOrder: 1, createdAt: now },
-      { id: uid(), taskId: tkWelcomeChecklist, title: 'Check them off', completed: false, sortOrder: 2, createdAt: now },
-      { id: uid(), taskId: tkVacationHotels, title: 'Search neighborhoods', completed: false, sortOrder: 0, createdAt: now },
-      { id: uid(), taskId: tkVacationHotels, title: 'Read reviews', completed: false, sortOrder: 1, createdAt: now },
-      { id: uid(), taskId: tkVacationHotels, title: 'Compare prices', completed: false, sortOrder: 2, createdAt: now },
-      { id: uid(), taskId: tkVacationHotels, title: 'Book', completed: false, sortOrder: 3, createdAt: now },
-      { id: uid(), taskId: tkVacationPack, title: 'Clothes', completed: false, sortOrder: 0, createdAt: now },
-      { id: uid(), taskId: tkVacationPack, title: 'Toiletries', completed: false, sortOrder: 1, createdAt: now },
-      { id: uid(), taskId: tkVacationPack, title: 'Chargers', completed: false, sortOrder: 2, createdAt: now },
-      { id: uid(), taskId: tkVacationPack, title: 'Passport', completed: false, sortOrder: 3, createdAt: now },
-      { id: uid(), taskId: tkHomeKitchen, title: 'Clean oven', completed: false, sortOrder: 0, createdAt: now },
-      { id: uid(), taskId: tkHomeKitchen, title: 'Defrost freezer', completed: false, sortOrder: 1, createdAt: now },
-      { id: uid(), taskId: tkHomeKitchen, title: 'Organize pantry', completed: false, sortOrder: 2, createdAt: now },
-    ]
-
-    const results = await Promise.all([
-      supabase.from('tags').insert(tags.map(t => tagToRow(t, userId))),
-      supabase.from('projects').insert(projects.map(p => projectToRow(p, userId))),
-      supabase.from('tasks').insert(tasks.map(t => taskToRow(t, userId))),
-      supabase.from('task_tags').insert(taskTagRows),
-      supabase.from('task_checklist_items').insert(checklistItems.map(i => checklistItemToRow(i))),
-    ])
-
-    const errors = results.filter(r => r.error)
-    if (errors.length) {
-      log.error('seed_onboarding_data_failed', errors)
-      return
-    }
-
-    for (const task of tasks) {
-      task.tagIds = taskTagMappings.filter(m => m.taskId === task.id).map(m => m.tagId)
-    }
-
+  seedDemoProject: (data) => {
     set(s => ({
-      tags: [...s.tags, ...tags],
-      projects: [...s.projects, ...projects],
-      tasks: [...s.tasks, ...tasks],
-      checklistItems: [...s.checklistItems, ...checklistItems],
+      projects: [...s.projects, data.project],
+      tasks: [...s.tasks, ...data.tasks],
+      tags: [...s.tags, ...data.tags],
+      checklistItems: [...s.checklistItems, ...data.checklistItems],
+      activeView: 'project',
+      activeProjectId: data.project.id,
     }))
   },
 
@@ -682,12 +426,13 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       trashUndo: null,
       sharedProjectIds: [],
       projectShares: [],
+      agentCurrentActions: [],
       _lastInviteTime: {},
       _channels: [],
     })
   },
 
-  addTask: async ({ title, notes, projectId, dueDate, isToday, isSomeday, tagIds, repeat }) => {
+  addTask: async ({ title, notes, projectId, dueDate, isToday, isSomeday, tagIds, repeat, source }) => {
     const userId = get().userId
     if (!userId) return
 
@@ -704,6 +449,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
       createdAt: now, sortOrder, tagIds: tagIds ?? [],
       repeat: repeat ?? null,
       assignedTo: null, assignedBy: null,
+      source: source ?? 'user',
     }
 
     set(state => ({ tasks: [...state.tasks, task] }))
@@ -847,6 +593,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
         repeat: prev.repeat,
         assignedTo: null,
         assignedBy: null,
+        source: 'recurring',
       }
 
       set(state => ({ tasks: [...state.tasks, repeatTask] }))
@@ -969,6 +716,7 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
         projectId,
         dueDate,
         tagIds: [],
+        source: 'agent',
       })
     }
 
@@ -1565,5 +1313,31 @@ export const useTaskStore = create<TaskStore>()((set, get) => ({
 
   setRightPanelOpen: (open) => {
     set({ rightPanelOpen: open })
+  },
+
+  setAgentCurrentAction: (action) => {
+    set(s => {
+      const existing = s.agentCurrentActions.findIndex(a => a.projectId === action.projectId)
+      if (existing >= 0) {
+        const updated = [...s.agentCurrentActions]
+        updated[existing] = action
+        return { agentCurrentActions: updated }
+      }
+      return { agentCurrentActions: [...s.agentCurrentActions, action] }
+    })
+  },
+
+  clearAgentCurrentAction: (projectId) => {
+    set(s => ({
+      agentCurrentActions: s.agentCurrentActions.filter(a => a.projectId !== projectId),
+    }))
+  },
+
+  updateAgentCurrentAction: (projectId, updates) => {
+    set(s => ({
+      agentCurrentActions: s.agentCurrentActions.map(a =>
+        a.projectId === projectId ? { ...a, ...updates } : a
+      ),
+    }))
   },
 }))

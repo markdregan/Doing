@@ -50,6 +50,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     isToday: false, isSomeday: false, completed: false, completedAt: null,
     deletedAt: null, createdAt: '2024-01-01', sortOrder: 0, tagIds: [],
     repeat: null, status: 'not_started', assignedTo: null, assignedBy: null,
+    source: 'user',
     ...overrides,
   }
 }
@@ -75,6 +76,7 @@ beforeEach(() => {
     trashUndo: null,
     sharedProjectIds: [],
     projectShares: [],
+    agentCurrentActions: [],
   })
   vi.clearAllMocks()
 })
@@ -142,7 +144,7 @@ describe('initialize', () => {
     expect(mockFrom).toHaveBeenCalledWith('agent_questions')
   })
 
-  it('seeds onboarding data when empty', async () => {
+  it('stays empty when no data (demo onboarding handles first-run)', async () => {
     const projectBuilder = createBuilder()
     const taskBuilder = createBuilder()
     const tagBuilder = createBuilder()
@@ -154,7 +156,8 @@ describe('initialize', () => {
     checklistBuilder.select.mockResolvedValue({ data: [], error: null })
     sharesBuilder.or.mockResolvedValue({ data: [], error: null })
     profilesBuilder.limit.mockResolvedValue({ data: [], error: null })
-    const seedBuilder = createBuilder()
+    const questionsBuilder = createBuilder()
+    questionsBuilder.order.mockResolvedValue({ data: [], error: null })
     mockFrom
       .mockReturnValueOnce(projectBuilder)
       .mockReturnValueOnce(taskBuilder)
@@ -163,21 +166,16 @@ describe('initialize', () => {
       .mockReturnValueOnce(checklistBuilder)
       .mockReturnValueOnce(sharesBuilder)
       .mockReturnValueOnce(profilesBuilder)
-      .mockReturnValue(seedBuilder)
+      .mockReturnValue(questionsBuilder)
 
     await useTaskStore.getState().initialize('user-1')
 
     const state = useTaskStore.getState()
     expect(state.dataLoading).toBe(false)
-    expect(state.projects).toHaveLength(4)
-    expect(state.projects[0].title).toBe('Welcome to Doing')
-    expect(state.tasks).toHaveLength(23)
-    expect(state.tags).toHaveLength(6)
-    expect(state.checklistItems).toHaveLength(14)
-    expect(state.tasks.filter(t => t.isToday)).toHaveLength(4)
-    expect(state.tasks.filter(t => t.isSomeday)).toHaveLength(4)
-    expect(state.tasks.filter(t => t.projectId !== null)).toHaveLength(19)
-    expect(seedBuilder.insert).toHaveBeenCalledTimes(5)
+    expect(state.projects).toHaveLength(0)
+    expect(state.tasks).toHaveLength(0)
+    expect(state.tags).toHaveLength(0)
+    expect(state.checklistItems).toHaveLength(0)
   })
 })
 

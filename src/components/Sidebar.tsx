@@ -27,15 +27,6 @@ function HomeIcon({ size = 16, className = '' }: { size?: number; className?: st
   );
 }
 
-function BellIcon({ size = 16, className = '' }: { size?: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
-      <path d="M8 1.5a5 5 0 0 0-5 5v2c0 .7-.3 1.4-.8 1.9l-.4.4a1 1 0 0 0 .7 1.7h11a1 1 0 0 0 .7-1.7l-.4-.4a2.5 2.5 0 0 1-.8-1.9v-2a5 5 0 0 0-5-5z" />
-      <path d="M6 12.5a2 2 0 0 0 4 0" />
-    </svg>
-  );
-}
-
 type MergedItem =
   | { type: 'conversation'; item: AgentConversation }
   | { type: 'project'; item: Project }
@@ -151,7 +142,6 @@ function ProjectItem({ project, isActive }: { project: Project; isActive: boolea
 export function SidebarContent({ onSearchOpen, onSettingsOpen }: { onSearchOpen?: () => void; onSettingsOpen?: () => void }) {
   const tasks = useTaskStore(s => s.tasks);
   const projects = useTaskStore(s => s.projects);
-  const agentQuestions = useTaskStore(s => s.agentQuestions);
   const activeView = useTaskStore(s => s.activeView);
   const activeProjectId = useTaskStore(s => s.activeProjectId);
   const setActiveView = useTaskStore(s => s.setActiveView);
@@ -168,20 +158,20 @@ export function SidebarContent({ onSearchOpen, onSettingsOpen }: { onSearchOpen?
 
   const trashCount = tasks.filter(t => t.deletedAt !== null).length;
   const sharedProjects = projects.filter(p => p.userId !== userId);
-  const pendingCount = agentQuestions.filter(q => q.status === 'pending').length;
-
-  // Merge planning conversations and user projects into one sorted list
+  // Merge planning conversations and user projects into one sorted list.
+  // Conversations sort by their last-updated time; projects sort by creation
+  // date (no updatedAt column on projects yet).
   const mergedItems: MergedItem[] = useMemo(() => {
     const planningConvs = conversations
       .filter(c => c.status !== 'active' && c.status !== 'archived')
-      .map(c => ({ type: 'conversation' as const, item: c, updatedAt: c.updatedAt }));
+      .map(c => ({ type: 'conversation' as const, item: c, sortDate: c.updatedAt }));
 
     const userProjects = projects
       .filter(p => p.userId === userId)
-      .map(p => ({ type: 'project' as const, item: p, updatedAt: p.createdAt }));
+      .map(p => ({ type: 'project' as const, item: p, sortDate: p.createdAt }));
 
     const items = [...planningConvs, ...userProjects];
-    items.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    items.sort((a, b) => new Date(b.sortDate).getTime() - new Date(a.sortDate).getTime());
     return items;
   }, [conversations, projects, userId]);
 
@@ -214,20 +204,6 @@ export function SidebarContent({ onSearchOpen, onSettingsOpen }: { onSearchOpen?
           <HomeIcon size={16} className="text-blue-500" />
           <span>Home</span>
         </SidebarButton>
-
-        <SidebarButton
-          active={activeView === 'awaiting-input'}
-          onClick={() => setActiveView('awaiting-input')}
-        >
-          <BellIcon size={16} className="text-amber-400" />
-          <span>Awaiting Input</span>
-          {pendingCount > 0 && (
-            <span className="ml-auto w-5 h-5 rounded-full bg-amber-400 text-white text-[10px] font-bold flex items-center justify-center">
-              {pendingCount}
-            </span>
-          )}
-        </SidebarButton>
-
       </nav>
 
       <div className="mt-6 px-5 mb-2 flex items-center justify-between">

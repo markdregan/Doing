@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { supabase } from '../lib/supabase'
 import { logger as parentLogger } from '../lib/logger'
 import { useTaskStore } from './useTaskStore'
-import type { AgentConversation, AgentMessage, PlanDraft } from '../types'
+import type { AgentConversation, AgentMessage, PlanDraft, ChatAttachment } from '../types'
 
 const log = parentLogger.child({ module: 'useAIStudioStore' })
 
@@ -16,11 +16,12 @@ function conversationFromRow(row: Record<string, unknown>): AgentConversation {
     goalText: row.goal_text as string,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
+    planDraft: (row.plan_draft as PlanDraft | null) ?? null,
   }
 }
 
 function conversationToRow(conv: AgentConversation, userId: string) {
-  return {
+  const row: Record<string, unknown> = {
     id: conv.id,
     user_id: userId,
     title: conv.title,
@@ -30,6 +31,10 @@ function conversationToRow(conv: AgentConversation, userId: string) {
     created_at: conv.createdAt,
     updated_at: conv.updatedAt,
   }
+  if (conv.planDraft !== undefined) {
+    row.plan_draft = conv.planDraft
+  }
+  return row
 }
 
 function messageFromRow(row: Record<string, unknown>): AgentMessage {
@@ -59,7 +64,7 @@ interface AIStudioStore {
   archiveConversation: (id: string) => Promise<void>
   updateConversation: (id: string, updates: Partial<AgentConversation>) => void
 
-  sendChatMessage: (conversationId: string, content: string) => Promise<void>
+  sendChatMessage: (conversationId: string, content: string, attachments?: ChatAttachment[]) => Promise<void>
   approvePlan: (conversationId: string) => Promise<void>
 
   setActiveConversation: (id: string | null) => Promise<void>
@@ -127,6 +132,8 @@ export const useAIStudioStore = create<AIStudioStore>((set, get) => ({
   },
 
   loadMessages: async (conversationId) => {
+    const cached = get().messagesByConversation[conversationId]
+
     const { data, error } = await supabase
       .from('agent_messages')
       .select('*')
@@ -140,16 +147,34 @@ export const useAIStudioStore = create<AIStudioStore>((set, get) => ({
 
     const messages = (data ?? []).map(messageFromRow)
 
-    set(state => ({
-      messagesByConversation: {
-        ...state.messagesByConversation,
-        [conversationId]: messages,
-      },
-    }))
+    // Only replace cached messages if we got data back.
+    // If Supabase returns empty (e.g. during the approval transition
+    // where the edge function hasn't finished writing yet), keep
+    // whatever we already have in memory.
+    if (messages.length > 0 || !cached || cached.length === 0) {
+      set(state => ({
+        messagesByConversation: {
+          ...state.messagesByConversation,
+          [conversationId]: messages,
+        },
+      }))
+    }
 
-    const lastAgentMsg = [...messages].reverse().find(m => m.role === 'agent')
-    const planDraft = lastAgentMsg?.metadata?.planDraft as PlanDraft | undefined
-    if (planDraft) {
+    const conv = get().conversations.find(c => c.id === conversationId)
+
+    // Primary source: conversation.planDraft (loaded via conversationFromRow).
+    // Fallback: extract from last agent message metadata (backward compat).
+    let planDraft: PlanDraft | undefined | null
+    if (conv?.planDraft) {
+      planDraft = conv.planDraft as PlanDraft
+    } else {
+      const lastAgentMsg = [...messages].reverse().find(m => m.role === 'agent')
+      planDraft = lastAgentMsg?.metadata?.planDraft as PlanDraft | undefined
+    }
+
+    // Don't revert an already-active conversation back to 'review'
+    // (same guard as sendChatMessage — prevents sidebar duplicates)
+    if (planDraft && conv?.status !== 'active') {
       set(state => ({
         planDrafts: {
           ...state.planDrafts,
@@ -194,7 +219,7 @@ export const useAIStudioStore = create<AIStudioStore>((set, get) => ({
     }))
   },
 
-  sendChatMessage: async (conversationId, content) => {
+  sendChatMessage: async (conversationId, content, attachments) => {
     set({ sending: true, error: null })
 
     const conv = get().conversations.find(c => c.id === conversationId)
@@ -224,6 +249,7 @@ export const useAIStudioStore = create<AIStudioStore>((set, get) => ({
         conversationId,
         goalText: conv.goalText,
         messages: [...get().messagesByConversation[conversationId] ?? []].map(m => ({ role: m.role, content: m.content })),
+        attachments,
       },
     })
 
@@ -248,7 +274,11 @@ export const useAIStudioStore = create<AIStudioStore>((set, get) => ({
         sending: false,
       }
 
-      if (data.planDraft) {
+      // Only apply planDraft if this conversation hasn't been approved yet.
+      // An already-active conversation that re-generates a plan should not
+      // revert to 'review' — that would cause a duplicate in the sidebar
+      // (both the conversation entry and the existing project).
+      if (data.planDraft && conv.status !== 'active') {
         const draft = data.planDraft as PlanDraft
         updates.planDrafts = {
           ...state.planDrafts,
@@ -259,6 +289,7 @@ export const useAIStudioStore = create<AIStudioStore>((set, get) => ({
             ...c,
             status: 'review' as const,
             title: draft.projectTitle ?? c.title,
+            planDraft: draft,
             updatedAt: new Date().toISOString(),
           } : c
         )
@@ -267,10 +298,12 @@ export const useAIStudioStore = create<AIStudioStore>((set, get) => ({
       return updates
     })
 
-    if (data.planDraft) {
+    if (data.planDraft && conv.status !== 'active') {
+      const draft = data.planDraft as PlanDraft
       await supabase.from('agent_conversations').update({
         status: 'review',
-        title: data.planDraft.projectTitle ?? conv.title,
+        title: draft.projectTitle ?? conv.title,
+        plan_draft: draft,
         updated_at: new Date().toISOString(),
       }).eq('id', conversationId)
     }
@@ -315,6 +348,18 @@ export const useAIStudioStore = create<AIStudioStore>((set, get) => ({
       return
     }
 
+    // Find the first task for this project to link the conversation
+    // (enables shared users to access conversation history via RLS).
+    const projectTasks = useTaskStore.getState().tasks.filter(t => t.projectId === projectId)
+    const firstTaskId = projectTasks[0]?.id ?? null
+
+    const dbUpdates: Record<string, unknown> = {
+      status: 'active',
+      title: draft.projectTitle,
+      updated_at: new Date().toISOString(),
+    }
+    if (firstTaskId) dbUpdates.task_id = firstTaskId
+
     set(state => ({
       conversations: state.conversations.map(c =>
         c.id === conversationId ? {
@@ -327,11 +372,7 @@ export const useAIStudioStore = create<AIStudioStore>((set, get) => ({
       ),
     }))
 
-    await supabase.from('agent_conversations').update({
-      status: 'active',
-      title: draft.projectTitle,
-      updated_at: new Date().toISOString(),
-    }).eq('id', conversationId)
+    await supabase.from('agent_conversations').update(dbUpdates).eq('id', conversationId)
   },
 
   setActiveConversation: async (id) => {
