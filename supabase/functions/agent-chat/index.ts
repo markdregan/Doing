@@ -46,7 +46,7 @@ serve(async (req) => {
       })
     }
 
-    const { conversationId, messages } = body
+    const { conversationId, messages, attachments } = body
 
     if (!conversationId || !messages || !Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: 'Invalid request body' }), {
@@ -59,9 +59,10 @@ serve(async (req) => {
       conversationId,
       messageCount: messages.length,
       lastRole: messages[messages.length - 1]?.role,
+      attachmentCount: attachments?.length ?? 0,
     })
 
-    const response = await callGemini(messages)
+    const response = await callGemini(messages, attachments as Attachment[] | undefined)
     const { reply, planDraft } = parsePlanFromResponse(response)
 
     const now = new Date().toISOString()
@@ -141,11 +142,44 @@ Create 4-8 tasks that cover the key steps. Only output the plan when you have en
 If you need more information, just ask questions naturally - don't output a plan yet.
 Keep your responses helpful and concise.`
 
-async function callGemini(messages: { role: string; content: string }[]): Promise<string> {
-  const contents = messages.map(m => ({
-    role: m.role === 'agent' ? 'model' : 'user',
-    parts: [{ text: m.content }],
-  }))
+interface Attachment {
+  name: string
+  mimeType: string
+  dataUrl: string
+}
+
+function dataUrlToInlineData(dataUrl: string): { mimeType: string; data: string } | null {
+  // dataUrl format: "data:mime/type;base64,base64data"
+  const match = dataUrl.match(/^data:(.+?);base64,(.+)$/)
+  if (!match) return null
+  return { mimeType: match[1], data: match[2] }
+}
+
+async function callGemini(messages: { role: string; content: string }[], attachments?: Attachment[]): Promise<string> {
+  // Build Gemini content parts from messages
+  const contents = messages.map((m, i) => {
+    const parts: { text?: string; inlineData?: { mimeType: string; data: string } }[] = []
+
+    // Add text part
+    if (m.content) {
+      parts.push({ text: m.content })
+    }
+
+    // Attach files to the last user message
+    if (attachments && attachments.length > 0 && m.role === 'user' && i === messages.length - 1) {
+      for (const att of attachments) {
+        const inlineData = dataUrlToInlineData(att.dataUrl)
+        if (inlineData) {
+          parts.push({ inlineData })
+        }
+      }
+    }
+
+    return {
+      role: m.role === 'agent' ? 'model' : 'user',
+      parts,
+    }
+  })
 
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`,

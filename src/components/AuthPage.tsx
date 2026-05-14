@@ -26,7 +26,7 @@ export default function AuthPage() {
         <div className="bg-white dark:bg-[#2C2C2E] rounded-2xl shadow-sm border border-gray-100 dark:border-[#38383A] p-10">
           <div className="text-center mb-8">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-[#F5F5F5]">Doing</h1>
-            <p className="text-sm text-gray-400 dark:text-[#98989D] mt-2">Sign in to continue</p>
+            <p className="text-sm text-gray-400 dark:text-[#98989D] mt-2">An AI agent that executes your projects — not a chatbot</p>
           </div>
 
           <div className="space-y-3">

@@ -1,16 +1,25 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuthStore } from '../store/useAuthStore'
 import { useTaskStore } from '../store/useTaskStore'
 import { useAIStudioStore } from '../store/useAIStudioStore'
 import { logger } from '../lib/logger'
+import DemoOnboardingFlow from './DemoOnboardingFlow'
 
 const log = logger.child({ module: 'ProtectedRoute' })
 
+function isDemoSeen(): boolean {
+  return localStorage.getItem('demo_seen') === 'true'
+}
+
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading, initialized } = useAuthStore()
-  const { initialize, dataLoading, redeemInviteToken } = useTaskStore()
+  const { initialize, dataLoading, redeemInviteToken, tasks, projects } = useTaskStore()
   const loadConversations = useAIStudioStore(s => s.loadConversations)
+
+  const showDemo = useMemo(() => {
+    return !isDemoSeen() || (tasks.length === 0 && projects.length === 0)
+  }, [tasks.length, projects.length])
 
   useEffect(() => {
     log.info('auth_guard_state', { initialized, loading, hasUser: !!user })
@@ -46,6 +55,11 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
         <div className="w-5 h-5 border-2 border-gray-300 dark:border-[#48484A] border-t-gray-500 dark:border-t-[#98989D] rounded-full animate-spin" />
       </div>
     )
+  }
+
+  // Show demo onboarding for first-time or blank users
+  if (showDemo) {
+    return <DemoOnboardingFlow />
   }
 
   return <>{children}</>

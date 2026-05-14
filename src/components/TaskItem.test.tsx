@@ -83,6 +83,7 @@ function createTask(overrides: Partial<Task> = {}): Task {
     repeat: null,
     assignedTo: null,
     assignedBy: null,
+    source: 'user',
     ...overrides,
   }
 }
